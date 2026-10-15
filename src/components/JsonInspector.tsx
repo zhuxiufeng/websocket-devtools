@@ -1,0 +1,733 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useWSStore } from '../store/ws-store';
+import {
+  ChevronRight,
+  ChevronDown,
+  Columns,
+  TrendingUp,
+  Filter,
+  EyeOff,
+  Copy,
+  Check,
+  FileCode,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Lock,
+  Radio,
+  ArrowDown,
+  ExternalLink,
+  Layers,
+  RotateCcw,
+  GitCompare,
+} from 'lucide-react';
+import { getDisambiguatedPathAndName } from '../utils/path-helper';
+import { computeJsonDiff } from '../utils/json-diff';
+import { sendBridgeMessage } from '../hooks/useBridge';
+
+interface ContextMenuState {
+  visible: boolean;
+  x: number;
+  y: number;
+  path: string;
+  keyName: string;
+  value: any;
+}
+
+export const JsonInspector: React.FC = () => {
+  const selectedFrame = useWSStore((state) => {
+    if (state.followLatestInspector) {
+      return state.frames[state.frames.length - 1] || null;
+    }
+    return (
+      state.frames.find((f) => f.id === state.selectedFrameId) ||
+      state.frames[0] ||
+      null
+    );
+  });
+
+  const allFrames = useWSStore((state) => state.frames);
+  const followLatest = useWSStore((state) => state.followLatestInspector);
+  const setFollowLatest = useWSStore((state) => state.setFollowLatestInspector);
+  const jumpToLatestFrame = useWSStore((state) => state.jumpToLatestFrame);
+  const jumpToFrameId = useWSStore((state) => state.jumpToFrameId);
+  const addCustomColumn = useWSStore((state) => state.addCustomColumn);
+  const addTelemetrySeries = useWSStore((state) => state.addTelemetrySeries);
+  const filterQuery = useWSStore((state) => state.filterQuery);
+  const setFilterQuery = useWSStore((state) => state.setFilterQuery);
+  const getSnapshotAtSeq = useWSStore((state) => state.getSnapshotAtSeq);
+
+  const [viewMode, setViewMode] = useState<'tree' | 'diff' | 'snapshot' | 'formatted' | 'raw'>('tree');
+  const [copied, setCopied] = useState(false);
+  const [replayed, setReplayed] = useState(false);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>({
+    visible: false,
+    x: 0,
+    y: 0,
+    path: '',
+    keyName: '',
+    value: null,
+  });
+
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Compute Diff vs Previous frame
+  const diffEntries = useMemo(() => {
+    if (!selectedFrame || viewMode !== 'diff') return [];
+    const idx = allFrames.findIndex((f) => f.id === selectedFrame.id);
+    const prev = idx > 0 ? allFrames[idx - 1] : null;
+    if (!prev?.jsonPayload || !selectedFrame.jsonPayload) return [];
+    return computeJsonDiff(prev.jsonPayload, selectedFrame.jsonPayload);
+  }, [selectedFrame, allFrames, viewMode]);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setContextMenu((prev) => ({ ...prev, visible: false }));
+      }
+    };
+    window.addEventListener('click', handleOutsideClick);
+    return () => window.removeEventListener('click', handleOutsideClick);
+  }, []);
+
+  const handleCopyJson = () => {
+    if (!selectedFrame) return;
+    navigator.clipboard.writeText(selectedFrame.payload);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  const handleContextMenu = (e: React.MouseEvent, path: string, keyName: string, value: any) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const x = Math.min(e.clientX, window.innerWidth - 210);
+    const y = Math.min(e.clientY, window.innerHeight - 230);
+
+    setContextMenu({
+      visible: true,
+      x,
+      y,
+      path,
+      keyName,
+      value,
+    });
+  };
+
+  // Reconstruct printer snapshot at selected frame
+  const snapshotData = useMemo(() => {
+    if (!selectedFrame || viewMode !== 'snapshot') return null;
+    return getSnapshotAtSeq(selectedFrame.connectionId, selectedFrame.seq ?? 0);
+  }, [selectedFrame, viewMode, getSnapshotAtSeq]);
+
+  if (!selectedFrame) {
+    return (
+      <div className="flex-1 bg-[#1e1e1e] flex flex-col items-center justify-center text-xs text-[#858585] p-4 select-none">
+        <FileCode className="w-8 h-8 mb-2 text-[#444444]" />
+        <span>No WebSocket frame selected</span>
+        <span className="text-[11px] text-[#666666] mt-1">
+          Select a frame from the stream table to inspect its JSON structure.
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0 bg-[#1e1e1e] overflow-hidden select-text text-xs">
+      {/* Header with Freeze/Follow Controls */}
+      <div className="h-8 px-3 bg-[#252526] border-b border-[#3c3c3c] flex items-center justify-between select-none shrink-0 gap-2">
+        {/* Frame Info */}
+        <div className="flex items-center gap-1.5 truncate">
+          <span className="font-semibold text-[#cccccc]">
+            Frame #{selectedFrame.seq ?? selectedFrame.id.replace('frame-', '')}
+          </span>
+          <span
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center gap-0.5 ${
+              selectedFrame.direction === 'in'
+                ? 'bg-emerald-950/70 text-emerald-400 border border-emerald-800'
+                : 'bg-amber-950/70 text-amber-400 border border-amber-800'
+            }`}
+          >
+            {selectedFrame.direction === 'in' ? (
+              <>
+                <ArrowDownLeft className="w-2.5 h-2.5" /> RX
+              </>
+            ) : (
+              <>
+                <ArrowUpRight className="w-2.5 h-2.5" /> TX
+              </>
+            )}
+          </span>
+          <span className="text-[#888888] font-mono text-[11px]">{selectedFrame.timeFormatted}</span>
+        </div>
+
+        {/* Freeze / Follow Status & Actions */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={() => setFollowLatest(!followLatest)}
+            className={`px-2 py-0.5 rounded text-[10px] font-medium border flex items-center gap-1 transition-colors ${
+              followLatest
+                ? 'bg-amber-950/80 text-amber-300 border-amber-700 hover:bg-amber-900/80'
+                : 'bg-[#1e1e1e] text-emerald-400 border-[#3c3c3c] hover:bg-[#2d2d2d]'
+            }`}
+            title={
+              followLatest
+                ? 'Currently auto-following latest incoming frame (Click to freeze)'
+                : 'Locked/Frozen on this frame (Click to follow latest frame live)'
+            }
+          >
+            {followLatest ? (
+              <>
+                <Radio className="w-2.5 h-2.5 animate-pulse text-amber-400" />
+                <span>Live Tail</span>
+              </>
+            ) : (
+              <>
+                <Lock className="w-2.5 h-2.5 text-emerald-400" />
+                <span>Frozen</span>
+              </>
+            )}
+          </button>
+
+          {/* Jump to Latest Frame button */}
+          <button
+            onClick={jumpToLatestFrame}
+            className="px-2 py-0.5 bg-[#2d2d2d] hover:bg-[#383838] text-[#aaaaaa] hover:text-[#38bdf8] rounded border border-[#444444] flex items-center gap-1 text-[10px] transition-colors"
+            title="Jump inspection to latest received frame"
+          >
+            <ArrowDown className="w-2.5 h-2.5" />
+            <span>Latest</span>
+          </button>
+
+          {/* Replay Frame */}
+          <button
+            onClick={() => {
+              sendBridgeMessage(selectedFrame.connectionId, selectedFrame.payload);
+              setReplayed(true);
+              setTimeout(() => setReplayed(false), 1500);
+            }}
+            className="px-2 py-0.5 bg-[#2d2d2d] hover:bg-[#383838] text-[#cccccc] hover:text-emerald-400 rounded border border-[#444444] flex items-center gap-1 text-[10px] transition-colors"
+            title="Replay / Re-send this payload over WebSocket"
+          >
+            {replayed ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <RotateCcw className="w-2.5 h-2.5" />}
+            <span>{replayed ? 'Sent!' : 'Replay'}</span>
+          </button>
+
+          {/* Copy Payload */}
+          <button
+            onClick={handleCopyJson}
+            className="px-2 py-0.5 bg-[#2d2d2d] hover:bg-[#383838] text-[#cccccc] rounded border border-[#444444] flex items-center gap-1 text-[10px] transition-colors"
+            title="Copy raw JSON payload"
+          >
+            {copied ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+            <span>{copied ? 'Copied' : 'Copy'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* RPC Pairing Information Banner */}
+      {selectedFrame.rpcKind === 'request' && (
+        <div className="px-3 py-1 bg-[#102a3a] border-b border-[#1e4976] flex items-center justify-between text-[11px] text-[#93c5fd] shrink-0">
+          <div className="flex items-center gap-1.5 truncate">
+            <span className="font-semibold text-cyan-400">JSON-RPC Request:</span>
+            <span className="font-mono text-white font-bold">{selectedFrame.method}</span>
+            <span className="text-[#888888] font-mono">(id: {selectedFrame.rpcId})</span>
+          </div>
+          {selectedFrame.rpcPeerId ? (
+            <button
+              onClick={() => jumpToFrameId(selectedFrame.rpcPeerId!)}
+              className="text-[#38bdf8] hover:text-white flex items-center gap-1 text-[10px] font-medium bg-[#0369a1]/40 px-2 py-0.5 rounded border border-[#38bdf8]/40 shrink-0 ml-2"
+            >
+              <span>Jump to Response</span>
+              {selectedFrame.rpcLatencyMs !== undefined && (
+                <span className="text-white font-mono font-bold">({selectedFrame.rpcLatencyMs.toFixed(1)}ms)</span>
+              )}
+              <ExternalLink className="w-2.5 h-2.5 ml-0.5" />
+            </button>
+          ) : (
+            <span className="text-[#777777] text-[10px] italic">Awaiting response...</span>
+          )}
+        </div>
+      )}
+
+      {(selectedFrame.rpcKind === 'response' || selectedFrame.rpcKind === 'error') && (
+        <div className="px-3 py-1 bg-[#0f2d1e] border-b border-[#1b5e3b] flex items-center justify-between text-[11px] text-[#a7f3d0] shrink-0">
+          <div className="flex items-center gap-1.5 truncate">
+            <span className="font-semibold text-emerald-400">
+              {selectedFrame.rpcKind === 'error' ? 'JSON-RPC Error:' : 'JSON-RPC Response:'}
+            </span>
+            <span className="font-mono text-white font-bold">{selectedFrame.method}</span>
+            <span className="text-[#888888] font-mono">(id: {selectedFrame.rpcId})</span>
+            {selectedFrame.rpcLatencyMs !== undefined && (
+              <span className="text-emerald-300 font-mono bg-emerald-950/80 px-1.5 py-0.2 rounded text-[10px] border border-emerald-800">
+                RTT: {selectedFrame.rpcLatencyMs.toFixed(1)}ms
+              </span>
+            )}
+          </div>
+          {selectedFrame.rpcPeerId && (
+            <button
+              onClick={() => jumpToFrameId(selectedFrame.rpcPeerId!)}
+              className="text-emerald-300 hover:text-white flex items-center gap-1 text-[10px] font-medium bg-emerald-900/50 px-2 py-0.5 rounded border border-emerald-600/40 shrink-0 ml-2"
+            >
+              <span>Jump to Request</span>
+              <ExternalLink className="w-2.5 h-2.5 ml-0.5" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Sub-header: View Mode Tabs */}
+      <div className="h-7 px-3 bg-[#1e1e1e] border-b border-[#303030] flex items-center justify-between select-none shrink-0">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setViewMode('tree')}
+            className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+              viewMode === 'tree'
+                ? 'bg-[#094771] text-white shadow-sm'
+                : 'text-[#888888] hover:text-[#cccccc] hover:bg-[#2a2d2e]'
+            }`}
+          >
+            🌳 Tree
+          </button>
+
+          <button
+            onClick={() => setViewMode('diff')}
+            className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors flex items-center gap-1 ${
+              viewMode === 'diff'
+                ? 'bg-[#7c2d12] text-amber-200 shadow-sm border border-amber-600'
+                : 'text-[#888888] hover:text-[#cccccc] hover:bg-[#2a2d2e]'
+            }`}
+            title="Inspect changes compared to previous frame"
+          >
+            <GitCompare className="w-3 h-3 text-amber-400" />
+            <span>Diff ({diffEntries.length})</span>
+          </button>
+
+          <button
+            onClick={() => setViewMode('snapshot')}
+            className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors flex items-center gap-1 ${
+              viewMode === 'snapshot'
+                ? 'bg-[#065f46] text-white shadow-sm'
+                : 'text-[#888888] hover:text-[#cccccc] hover:bg-[#2a2d2e]'
+            }`}
+            title="Inspect the complete merged printer status at this exact point in time"
+          >
+            <Layers className="w-3 h-3 text-emerald-400" />
+            <span>Snapshot</span>
+          </button>
+
+          <button
+            onClick={() => setViewMode('formatted')}
+            className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+              viewMode === 'formatted'
+                ? 'bg-[#094771] text-white shadow-sm'
+                : 'text-[#888888] hover:text-[#cccccc] hover:bg-[#2a2d2e]'
+            }`}
+          >
+            ✨ JSON
+          </button>
+
+          <button
+            onClick={() => setViewMode('raw')}
+            className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+              viewMode === 'raw'
+                ? 'bg-[#094771] text-white shadow-sm'
+                : 'text-[#888888] hover:text-[#cccccc] hover:bg-[#2a2d2e]'
+            }`}
+          >
+            📄 Raw
+          </button>
+        </div>
+
+        <div className="text-[10px] text-[#777777] font-mono">
+          {selectedFrame.length} bytes {selectedFrame.isBinary ? '(binary)' : ''}
+        </div>
+      </div>
+
+      {/* Main Content View */}
+      <div className="flex-1 overflow-auto p-2.5 font-mono text-[12px] leading-5 select-text">
+        {viewMode === 'diff' ? (
+          diffEntries.length === 0 ? (
+            <div className="p-4 text-center text-[#777777] text-xs font-sans">
+              No differences detected compared to the previous frame (or no previous frame recorded).
+            </div>
+          ) : (
+            <div className="space-y-1.5 p-1 font-mono text-[11px]">
+              <div className="text-[10px] text-[#888888] pb-1 border-b border-[#333333] mb-2 flex items-center justify-between">
+                <span>Changes vs previous frame ({diffEntries.length} fields):</span>
+                <span className="text-[#38bdf8]">[+] added, [~] changed, [-] removed</span>
+              </div>
+              {diffEntries.map((d, i) => (
+                <div
+                  key={i}
+                  className={`p-1.5 rounded border text-[11px] flex flex-col gap-0.5 ${
+                    d.type === 'added'
+                      ? 'bg-emerald-950/30 border-emerald-800 text-emerald-300'
+                      : d.type === 'removed'
+                      ? 'bg-rose-950/30 border-rose-800 text-rose-300'
+                      : 'bg-amber-950/30 border-amber-800 text-amber-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold flex items-center gap-1 font-mono">
+                      <span>{d.type === 'added' ? '+' : d.type === 'removed' ? '-' : '~'}</span>
+                      <span className="text-white">{d.path}</span>
+                    </span>
+                    <span className="text-[9px] uppercase px-1 rounded bg-black/40 text-[#aaaaaa]">
+                      {d.type}
+                    </span>
+                  </div>
+
+                  {d.type === 'changed' ? (
+                    <div className="text-[10px] pl-3 flex items-center gap-2 font-mono">
+                      <span className="text-rose-400 line-through truncate max-w-[150px]">
+                        {typeof d.oldValue === 'object' ? JSON.stringify(d.oldValue) : String(d.oldValue)}
+                      </span>
+                      <span className="text-[#888888]">→</span>
+                      <span className="text-emerald-400 font-bold truncate max-w-[200px]">
+                        {typeof d.newValue === 'object' ? JSON.stringify(d.newValue) : String(d.newValue)}
+                      </span>
+                    </div>
+                  ) : d.type === 'added' ? (
+                    <div className="text-[10px] pl-3 text-emerald-400 font-mono truncate">
+                      {typeof d.newValue === 'object' ? JSON.stringify(d.newValue) : String(d.newValue)}
+                    </div>
+                  ) : (
+                    <div className="text-[10px] pl-3 text-rose-400 font-mono truncate">
+                      (was: {typeof d.oldValue === 'object' ? JSON.stringify(d.oldValue) : String(d.oldValue)})
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )
+        ) : viewMode === 'snapshot' ? (
+          snapshotData && Object.keys(snapshotData).length > 0 ? (
+            <div>
+              <div className="mb-2 p-1.5 bg-[#064e3b]/30 border border-[#065f46] rounded text-[11px] text-emerald-300 font-sans flex items-center justify-between">
+                <span>
+                  🖨️ <strong>Printer State Snapshot</strong> merged up to Frame #{selectedFrame.seq ?? selectedFrame.id}
+                </span>
+                <span className="text-[10px] text-emerald-400/80 font-mono">
+                  {Object.keys(snapshotData).length} status modules
+                </span>
+              </div>
+              <JsonTreeNode
+                keyName="printer_state"
+                value={snapshotData}
+                currentPath=""
+                onContextMenu={handleContextMenu}
+                onShowAsColumn={(path, key) => addCustomColumn(path, key)}
+                onTrackOnGraph={(path, key) => addTelemetrySeries(path, key)}
+                isRoot
+                depth={0}
+              />
+            </div>
+          ) : (
+            <div className="p-4 text-center text-[#777777]">
+              No status update frames recorded prior to Frame #{selectedFrame.seq ?? selectedFrame.id} for this connection.
+            </div>
+          )
+        ) : viewMode === 'tree' ? (
+          selectedFrame.isJson && selectedFrame.jsonPayload ? (
+            <JsonTreeNode
+              keyName="root"
+              value={selectedFrame.jsonPayload}
+              currentPath=""
+              onContextMenu={handleContextMenu}
+              onShowAsColumn={(path, key) => addCustomColumn(path, key)}
+              onTrackOnGraph={(path, key) => addTelemetrySeries(path, key)}
+              isRoot
+              depth={0}
+            />
+          ) : (
+            <pre className="text-[#ce9178] whitespace-pre-wrap break-all font-mono select-text">
+              {selectedFrame.payload}
+            </pre>
+          )
+        ) : viewMode === 'formatted' ? (
+          <pre className="text-[#9cdcfe] whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed select-text p-2 bg-[#181818] rounded border border-[#2d2d2d]">
+            {(() => {
+              try {
+                const parsed = selectedFrame.jsonPayload || JSON.parse(selectedFrame.payload);
+                return JSON.stringify(parsed, null, 2);
+              } catch {
+                return selectedFrame.payload;
+              }
+            })()}
+          </pre>
+        ) : (
+          <pre className="text-[#ce9178] whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed select-text p-2 bg-[#181818] rounded border border-[#2d2d2d]">
+            {selectedFrame.payload}
+          </pre>
+        )}
+      </div>
+
+      {/* Context Menu Popup */}
+      {contextMenu.visible && (
+        <div
+          ref={menuRef}
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          className="fixed z-50 w-52 bg-[#252526] border border-[#454545] rounded-md shadow-2xl py-1 text-xs select-none backdrop-blur-md"
+        >
+          <div className="px-3 py-1 text-[10px] text-[#888888] border-b border-[#3c3c3c] font-mono truncate">
+            {contextMenu.path || contextMenu.keyName}
+          </div>
+
+          <button
+            onClick={() => {
+              const { cleanPath, displayName } = getDisambiguatedPathAndName(
+                contextMenu.path || contextMenu.keyName,
+                contextMenu.keyName
+              );
+              addCustomColumn(cleanPath, displayName);
+              setContextMenu((prev) => ({ ...prev, visible: false }));
+            }}
+            className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
+          >
+            <Columns className="w-3.5 h-3.5 text-[#38bdf8]" />
+            <span>📌 Show as Column</span>
+          </button>
+
+          <button
+            onClick={() => {
+              const { cleanPath, displayName } = getDisambiguatedPathAndName(
+                contextMenu.path || contextMenu.keyName,
+                contextMenu.keyName
+              );
+              addTelemetrySeries(cleanPath, displayName);
+              setContextMenu((prev) => ({ ...prev, visible: false }));
+            }}
+            className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
+          >
+            <TrendingUp className="w-3.5 h-3.5 text-[#f59e0b]" />
+            <span>📊 Track on Graph</span>
+          </button>
+
+          <div className="my-1 border-t border-[#3c3c3c]" />
+
+          <button
+            onClick={() => {
+              const valStr =
+                typeof contextMenu.value === 'object'
+                  ? JSON.stringify(contextMenu.value)
+                  : String(contextMenu.value);
+              setFilterQuery(`${filterQuery ? filterQuery + ' ' : ''}json:${contextMenu.keyName}=${valStr}`);
+              setContextMenu((prev) => ({ ...prev, visible: false }));
+            }}
+            className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
+          >
+            <Filter className="w-3.5 h-3.5 text-emerald-400" />
+            <span>🔍 Filter by Value</span>
+          </button>
+
+          <button
+            onClick={() => {
+              const valStr =
+                typeof contextMenu.value === 'object'
+                  ? contextMenu.keyName
+                  : String(contextMenu.value);
+              setFilterQuery(`${filterQuery ? filterQuery + ' ' : ''}-${valStr}`);
+              setContextMenu((prev) => ({ ...prev, visible: false }));
+            }}
+            className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
+          >
+            <EyeOff className="w-3.5 h-3.5 text-rose-400" />
+            <span>🚫 Exclude Value</span>
+          </button>
+
+          <div className="my-1 border-t border-[#3c3c3c]" />
+
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(contextMenu.path || contextMenu.keyName);
+              setContextMenu((prev) => ({ ...prev, visible: false }));
+            }}
+            className="w-full px-3 py-1.5 text-left text-[#aaaaaa] hover:bg-[#333333] flex items-center gap-2 transition-colors text-[11px]"
+          >
+            <Copy className="w-3 h-3" />
+            <span>Copy Path</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface JsonTreeNodeProps {
+  keyName: string;
+  value: any;
+  currentPath: string;
+  onContextMenu: (e: React.MouseEvent, path: string, keyName: string, value: any) => void;
+  onShowAsColumn: (path: string, keyName: string) => void;
+  onTrackOnGraph: (path: string, keyName: string) => void;
+  isRoot?: boolean;
+  depth: number;
+}
+
+const JsonTreeNode: React.FC<JsonTreeNodeProps> = React.memo(({
+  keyName,
+  value,
+  currentPath,
+  onContextMenu,
+  onShowAsColumn,
+  onTrackOnGraph,
+  isRoot = false,
+  depth,
+}) => {
+  const [collapsed, setCollapsed] = useState(depth > 3);
+
+  const isObject = value !== null && typeof value === 'object';
+  const isArray = Array.isArray(value);
+
+  const thisPath = isRoot ? '' : currentPath ? `${currentPath}.${keyName}` : keyName;
+
+  if (isObject) {
+    const keys = Object.keys(value);
+    const count = keys.length;
+    const bracketOpen = isArray ? '[' : '{';
+    const bracketClose = isArray ? ']' : '}';
+
+    const isNumberArray = isArray && value.every((v: any) => typeof v === 'number');
+
+    return (
+      <div className={isRoot ? '' : 'pl-3.5 border-l border-[#2e2e2e]/60 hover:border-[#444444]'}>
+        <div
+          className="flex items-center justify-between group py-0.5 hover:bg-[#252526] rounded px-1 cursor-pointer select-text"
+          onClick={() => setCollapsed(!collapsed)}
+          onContextMenu={(e) => onContextMenu(e, thisPath, keyName, value)}
+        >
+          <div className="flex items-center gap-1 truncate select-text">
+            <span className="text-[#888888] hover:text-white shrink-0 select-none">
+              {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </span>
+
+            {!isRoot && (
+              <span className="text-[#9cdcfe] font-semibold select-text">
+                {keyName}:{' '}
+              </span>
+            )}
+
+            <span className="text-[#808080] select-text">
+              {bracketOpen}
+              {collapsed && ` ...${count} items `}
+              {isNumberArray && !collapsed && (
+                <span className="text-[#b5cea8] font-mono text-[11px] select-text">
+                  {' '}{value.map((v: number) => (Number.isInteger(v) ? v : v.toFixed(2))).join(', ')}{' '}
+                </span>
+              )}
+              {(!collapsed && count === 0) || (isNumberArray && !collapsed) ? bracketClose : ''}
+            </span>
+          </div>
+
+          {/* Quick Action Hover Buttons */}
+          {!isRoot && (
+            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 shrink-0 ml-2 select-none">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const { cleanPath, displayName } = getDisambiguatedPathAndName(thisPath, keyName);
+                  onShowAsColumn(cleanPath, displayName);
+                }}
+                className="px-1 py-0.5 bg-[#1e293b] hover:bg-[#0284c7] text-[#38bdf8] hover:text-white rounded text-[10px] flex items-center gap-0.5 transition-colors"
+                title="Show as Column in table"
+              >
+                <Columns className="w-2.5 h-2.5" />
+                <span>Col</span>
+              </button>
+
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const { cleanPath, displayName } = getDisambiguatedPathAndName(thisPath, keyName);
+                  onTrackOnGraph(cleanPath, displayName);
+                }}
+                className="px-1 py-0.5 bg-[#451a03] hover:bg-[#d97706] text-[#fbbf24] hover:text-white rounded text-[10px] flex items-center gap-0.5 transition-colors"
+                title="Track on Telemetry Graph"
+              >
+                <TrendingUp className="w-2.5 h-2.5" />
+                <span>Track</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {!collapsed && (
+          <div className="space-y-0.5">
+            {keys.map((k) => (
+              <JsonTreeNode
+                key={k}
+                keyName={k}
+                value={value[k]}
+                currentPath={thisPath}
+                onContextMenu={onContextMenu}
+                onShowAsColumn={onShowAsColumn}
+                onTrackOnGraph={onTrackOnGraph}
+                depth={depth + 1}
+              />
+            ))}
+            <div className="text-[#808080] pl-1">{bracketClose}</div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Primitive value rendering
+  let valueColor = 'text-[#ce9178]'; // strings
+  let displayValue = String(value);
+
+  if (typeof value === 'number') {
+    valueColor = 'text-[#b5cea8]';
+    displayValue = Number.isInteger(value) ? String(value) : value.toFixed(3);
+  } else if (typeof value === 'boolean') {
+    valueColor = 'text-[#569cd6]';
+    displayValue = value ? 'true' : 'false';
+  } else if (value === null) {
+    valueColor = 'text-[#569cd6]';
+    displayValue = 'null';
+  } else if (typeof value === 'string') {
+    displayValue = `"${value}"`;
+  }
+
+  return (
+    <div
+      className="flex items-center justify-between group pl-4 py-0.5 hover:bg-[#252526] rounded px-1 cursor-pointer select-text"
+      onContextMenu={(e) => onContextMenu(e, thisPath, keyName, value)}
+    >
+      <div className="flex items-center gap-1 truncate select-text">
+        <span className="text-[#9cdcfe] font-semibold select-text">{keyName}: </span>
+        <span className={`${valueColor} font-mono select-text truncate max-w-md`} title={String(value)}>
+          {displayValue}
+        </span>
+      </div>
+
+      <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 shrink-0 ml-2 select-none">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            const { cleanPath, displayName } = getDisambiguatedPathAndName(thisPath, keyName);
+            onShowAsColumn(cleanPath, displayName);
+          }}
+          className="px-1 py-0.5 bg-[#1e293b] hover:bg-[#0284c7] text-[#38bdf8] hover:text-white rounded text-[10px] flex items-center gap-0.5 transition-colors"
+          title="Show as Column in table"
+        >
+          <Columns className="w-2.5 h-2.5" />
+          <span>Col</span>
+        </button>
+
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            const { cleanPath, displayName } = getDisambiguatedPathAndName(thisPath, keyName);
+            onTrackOnGraph(cleanPath, displayName);
+          }}
+          className="px-1 py-0.5 bg-[#451a03] hover:bg-[#d97706] text-[#fbbf24] hover:text-white rounded text-[10px] flex items-center gap-0.5 transition-colors"
+          title="Track on Telemetry Graph"
+        >
+          <TrendingUp className="w-2.5 h-2.5" />
+          <span>Track</span>
+        </button>
+      </div>
+    </div>
+  );
+});
