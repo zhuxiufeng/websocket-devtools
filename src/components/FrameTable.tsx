@@ -195,6 +195,7 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
   const enableRowTinting = useWSStore((s) => s.enableRowTinting);
   const enableCarryForward = useWSStore((s) => s.enableCarryForward);
   const isAutoScrollPaused = useWSStore((s) => s.isAutoScrollPaused);
+  const followLatestInspector = useWSStore((s) => s.followLatestInspector);
   const unseenNewFramesCount = useWSStore((s) => s.unseenNewFramesCount);
   const setIsAutoScrollPaused = useWSStore((s) => s.setIsAutoScrollPaused);
   const resetUnseenCount = useWSStore((s) => s.resetUnseenCount);
@@ -272,11 +273,14 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
     if (prevSelectedFrameIdRef.current === selectedFrameId) return;
     prevSelectedFrameIdRef.current = selectedFrameId;
 
+    // If auto-scroll is paused (user scrolled up to inspect history), do not jump when Live Tail advances
+    if (isAutoScrollPaused && followLatestInspector) return;
+
     const idx = filteredFrames.findIndex((f) => f.id === selectedFrameId);
     if (idx !== -1) {
       rowVirtualizer.scrollToIndex(idx, { align: 'auto' });
     }
-  }, [selectedFrameId, filteredFrames, rowVirtualizer]);
+  }, [selectedFrameId, filteredFrames, rowVirtualizer, isAutoScrollPaused, followLatestInspector]);
 
   // Handle column resize drag
   useEffect(() => {

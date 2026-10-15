@@ -14,6 +14,7 @@ export const ConnectionsSidebar: React.FC<ConnectionsSidebarProps> = ({
   const connections = useWSStore((s) => s.connections);
   const totalFrameCount = useWSStore((s) => s.frames.length);
   const connList = Object.values(connections);
+  const totalHistoricalMsgs = connList.reduce((acc, c) => acc + c.frameCount, 0);
 
   return (
     <div className="w-52 bg-[#252526] border-r border-[#3c3c3c] flex flex-col select-none text-xs shrink-0">
@@ -38,8 +39,15 @@ export const ConnectionsSidebar: React.FC<ConnectionsSidebarProps> = ({
             <Radio className="w-3.5 h-3.5 text-[#38bdf8]" />
             <span className="truncate">All Streams</span>
           </div>
-          <span className="text-[10px] bg-black/30 px-1.5 py-0.5 rounded text-[#aaaaaa] font-mono">
-            {totalFrameCount}
+          <span
+            className="text-[10px] bg-black/30 px-1.5 py-0.5 rounded text-[#aaaaaa] font-mono"
+            title={
+              totalHistoricalMsgs > totalFrameCount
+                ? `Retaining latest ${totalFrameCount.toLocaleString()} frames in memory (${totalHistoricalMsgs.toLocaleString()} total received)`
+                : `${totalFrameCount.toLocaleString()} frames in memory`
+            }
+          >
+            {totalFrameCount.toLocaleString()}
           </span>
         </div>
 

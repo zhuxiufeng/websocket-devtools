@@ -201,7 +201,7 @@ export const TelemetryTracker: React.FC = () => {
 
       return {
         series: s,
-        path: `M ${points.join(' L ')}`,
+        path: points.length > 0 ? `M ${points.join(' L ')}` : '',
         currentVal: s.dataPoints[s.dataPoints.length - 1]?.value ?? null,
         sMin,
         sMax,
