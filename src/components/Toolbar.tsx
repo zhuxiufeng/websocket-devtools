@@ -17,6 +17,7 @@ import {
   Bookmark,
   BookmarkPlus,
   History,
+  Database,
 } from 'lucide-react';
 import { downloadTraceFile } from '../core/trace-io';
 import { MethodStatsModal } from './MethodStatsModal';
@@ -46,6 +47,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
   const setEnableRowTinting = useWSStore((s) => s.setEnableRowTinting);
   const enableCarryForward = useWSStore((s) => s.enableCarryForward);
   const setEnableCarryForward = useWSStore((s) => s.setEnableCarryForward);
+  const maxFrames = useWSStore((s) => s.maxFrames);
+  const setMaxFrames = useWSStore((s) => s.setMaxFrames);
   const importTraceData = useWSStore((s) => s.importTraceData);
 
   const [columnModalOpen, setColumnModalOpen] = useState(false);
@@ -191,6 +194,26 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
             <BarChart2 className="w-3.5 h-3.5 text-purple-400" />
             <span>Stats</span>
           </button>
+
+          {/* Buffer Capacity Selector */}
+          <div
+            className="flex items-center gap-1 bg-[#252526] border border-[#444444] rounded px-1.5 py-0.5 text-[11px] text-[#888888]"
+            title="Memory Buffer Capacity: Maximum frames retained in RAM (FIFO)"
+          >
+            <Database className="w-3 h-3 text-[#38bdf8]" />
+            <span className="hidden xl:inline text-[10px] text-[#aaaaaa]">Buffer:</span>
+            <select
+              value={maxFrames}
+              onChange={(e) => setMaxFrames(Number(e.target.value))}
+              className="bg-transparent text-[#38bdf8] hover:text-white font-mono text-[11px] outline-none cursor-pointer"
+            >
+              <option value={5000} className="bg-[#252526] text-[#cccccc]">5k</option>
+              <option value={10000} className="bg-[#252526] text-[#cccccc]">10k</option>
+              <option value={20000} className="bg-[#252526] text-[#cccccc]">20k</option>
+              <option value={50000} className="bg-[#252526] text-[#cccccc]">50k</option>
+              <option value={100000} className="bg-[#252526] text-[#cccccc]">100k</option>
+            </select>
+          </div>
 
           {/* Quick Exclude / Filter Chips */}
           <div className="hidden lg:flex items-center gap-1.5 shrink-0">

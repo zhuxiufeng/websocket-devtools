@@ -34,12 +34,13 @@ interface WSStoreState {
   isMockActive: boolean;
   mockSpeed: MockStreamSpeed;
 
-  // New settings & features
   enableRowTinting: boolean;
   enableCarryForward: boolean;
   isAutoScrollPaused: boolean;
   unseenNewFramesCount: number;
   followLatestInspector: boolean;
+  maxFrames: number;
+  setMaxFrames: (limit: number) => void;
 
   // Frame actions
   addFramesBatch: (newFrames: Partial<WSFrame>[]) => void;
@@ -118,6 +119,23 @@ export const useWSStore = create<WSStoreState>()(
       isRecording: true,
       isMockActive: false,
       mockSpeed: '20Hz',
+      maxFrames: 10000,
+      setMaxFrames: (limit: number) => {
+        const validLimit = Math.max(1000, Math.min(200000, limit));
+        const frames = get().frames;
+        if (frames.length > validLimit) {
+          const dropCount = frames.length - validLimit;
+          for (let i = 0; i < dropCount; i++) {
+            framesLookupMap.delete(frames[i].id);
+          }
+          set({
+            maxFrames: validLimit,
+            frames: frames.slice(dropCount),
+          });
+        } else {
+          set({ maxFrames: validLimit });
+        }
+      },
 
       filterPresets: [
         { id: 'pre-1', name: '🚨 Errors & Warnings', query: 'error' },
@@ -247,8 +265,9 @@ export const useWSStore = create<WSStoreState>()(
 
           // 2. Append frames with ring buffer
           let updatedFrames = [...state.frames, ...processedFrames];
-          if (updatedFrames.length > MAX_FRAMES) {
-            const dropCount = updatedFrames.length - MAX_FRAMES;
+          const cap = state.maxFrames || 10000;
+          if (updatedFrames.length > cap) {
+            const dropCount = updatedFrames.length - cap;
             for (let i = 0; i < dropCount; i++) {
               framesLookupMap.delete(updatedFrames[i].id);
             }
@@ -570,6 +589,7 @@ export const useWSStore = create<WSStoreState>()(
         filterPresets: state.filterPresets,
         filterHistory: state.filterHistory,
         mockSpeed: state.mockSpeed,
+        maxFrames: state.maxFrames,
       }),
       onRehydrateStorage: () => (state) => {
         if (state && (state as any).telemetrySeriesConfigs) {

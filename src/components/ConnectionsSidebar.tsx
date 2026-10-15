@@ -13,8 +13,11 @@ export const ConnectionsSidebar: React.FC<ConnectionsSidebarProps> = ({
 }) => {
   const connections = useWSStore((s) => s.connections);
   const totalFrameCount = useWSStore((s) => s.frames.length);
+  const maxFrames = useWSStore((s) => s.maxFrames);
   const connList = Object.values(connections);
   const totalHistoricalMsgs = connList.reduce((acc, c) => acc + c.frameCount, 0);
+
+  const formattedCap = maxFrames >= 1000 ? `${maxFrames / 1000}k` : `${maxFrames}`;
 
   return (
     <div className="w-52 bg-[#252526] border-r border-[#3c3c3c] flex flex-col select-none text-xs shrink-0">
@@ -40,14 +43,14 @@ export const ConnectionsSidebar: React.FC<ConnectionsSidebarProps> = ({
             <span className="truncate">All Streams</span>
           </div>
           <span
-            className="text-[10px] bg-black/30 px-1.5 py-0.5 rounded text-[#aaaaaa] font-mono"
+            className="text-[10px] bg-black/30 px-1.5 py-0.5 rounded text-[#aaaaaa] font-mono shrink-0"
             title={
               totalHistoricalMsgs > totalFrameCount
-                ? `Retaining latest ${totalFrameCount.toLocaleString()} frames in memory (${totalHistoricalMsgs.toLocaleString()} total received)`
-                : `${totalFrameCount.toLocaleString()} frames in memory`
+                ? `Retaining latest ${totalFrameCount.toLocaleString()} of max ${maxFrames.toLocaleString()} frames in memory (${totalHistoricalMsgs.toLocaleString()} total received)`
+                : `${totalFrameCount.toLocaleString()} / ${maxFrames.toLocaleString()} frames in memory`
             }
           >
-            {totalFrameCount.toLocaleString()}
+            {totalFrameCount.toLocaleString()} / {formattedCap}
           </span>
         </div>
 
