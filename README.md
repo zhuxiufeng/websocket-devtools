@@ -1,10 +1,13 @@
-# WS Telemetry Analyzer & Stream Monitor
+# WebSocket DevTools (WS Telemetry Analyzer)
 
 A powerful, high-performance Chrome DevTools extension for inspecting, filtering, analyzing, and graphing high-frequency WebSocket and JSON-RPC traffic.
 
 [![Chrome MV3](https://img.shields.io/badge/Manifest-V3-success.svg)](https://developer.chrome.com/docs/extensions/mv3/intro/)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-blue.svg)](https://www.typescriptlang.org/)
+[![Built with AI](https://img.shields.io/badge/Built%20with-AI%20Pair%20Programming-8a2be2.svg)](https://github.com/zhuxiufeng/websocket-devtools)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+> 🤖 **Developed with AI**: This project was architected, engineered, and optimized through human-AI pair programming with Google DeepMind Advanced Agentic AI (Antigravity). From zero-permission in-page hook architecture and 60fps high-throughput stream batching to pixel-level decimated SVG telemetry curves, every component was iteratively designed, benchmarked, and audited with comprehensive automated test suites.
 
 ---
 
@@ -31,7 +34,7 @@ A powerful, high-performance Chrome DevTools extension for inspecting, filtering
 - **UI & State**: [React 19](https://react.dev/), [Zustand](https://github.com/pmndrs/zustand)
 - **Virtualization**: [@tanstack/react-virtual](https://tanstack.com/virtual/latest)
 - **Styling & Icons**: [Tailwind CSS](https://tailwindcss.com/), [Lucide React](https://lucide.dev/)
-- **Testing**: [Vitest](https://vitest.dev/)
+- **Testing**: [Vitest](https://vitest.dev/) (33/33 comprehensive unit & integration tests)
 
 ---
 
@@ -46,8 +49,8 @@ A powerful, high-performance Chrome DevTools extension for inspecting, filtering
 
 ```bash
 # Clone the repository
-git clone https://github.com/<your-username>/ws-telemetry-analyzer.git
-cd ws-telemetry-analyzer
+git clone https://github.com/zhuxiufeng/websocket-devtools.git
+cd websocket-devtools
 
 # Install dependencies
 pnpm install
