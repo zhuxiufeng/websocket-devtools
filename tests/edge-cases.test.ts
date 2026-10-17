@@ -153,4 +153,32 @@ describe('Comprehensive Self-Test & Edge Case Audit Suite', () => {
     expect(f3.carried?.['col-speed'].value).toBe(500);
     expect(f3.carried?.['col-speed'].fromId).toBe('fa-1');
   });
+
+  it('5. Real-world ws-hook frames with isJson: true parse jsonPayload and classify JSON-RPC correctly', () => {
+    const processor = new FrameProcessor();
+    const rawWsHookFrame: Partial<WSFrame> = {
+      id: 'hook-1',
+      connectionId: 'ws://127.0.0.1:7125/websocket',
+      direction: 'in',
+      timestamp: Date.now(),
+      isJson: true, // emitted by ws-hook.content.ts based on charCodeAt
+      isBinary: false,
+      payload: JSON.stringify({
+        jsonrpc: '2.0',
+        result: {
+          gcode_store: [{ message: '// aging_test_pause...', time: 1792226409.53, type: 'response' }],
+        },
+        id: 44,
+      }),
+    };
+
+    const [processed] = processor.ingestBatch([rawWsHookFrame], []);
+    expect(processed.isJson).toBe(true);
+    expect(processed.jsonPayload).not.toBeNull();
+    expect(processed.jsonPayload.jsonrpc).toBe('2.0');
+    expect(processed.rpcKind).toBe('response');
+    expect(processed.rpcId).toBe(44);
+    expect(processed.jsonPayload.result.gcode_store).toHaveLength(1);
+  });
 });
+

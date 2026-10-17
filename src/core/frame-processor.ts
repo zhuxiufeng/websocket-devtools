@@ -149,12 +149,17 @@ export class FrameProcessor {
         if (!payload && raw.rawBase64) {
           payload = `[Binary Frame: ${raw.length || 0} bytes]`;
         }
-      } else if (!jsonPayload && payload && !isJson) {
-        try {
-          jsonPayload = JSON.parse(payload);
-          isJson = true;
-        } catch {
-          isJson = false;
+      } else if (!jsonPayload && payload) {
+        // Attempt parsing if marked as JSON by hook or if first character looks like JSON object/array
+        const trimmed = payload.trim();
+        if (isJson || trimmed.startsWith('{') || trimmed.startsWith('[')) {
+          try {
+            jsonPayload = JSON.parse(payload);
+            isJson = true;
+          } catch {
+            isJson = false;
+            jsonPayload = null;
+          }
         }
       }
 

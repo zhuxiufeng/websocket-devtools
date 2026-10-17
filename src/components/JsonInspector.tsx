@@ -70,14 +70,42 @@ export const JsonInspector: React.FC = () => {
 
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // Fallback lazy parse to ensure Tree/Diff always works even if jsonPayload wasn't pre-populated
+  const effectiveJsonPayload = useMemo(() => {
+    if (!selectedFrame) return null;
+    if (selectedFrame.jsonPayload) return selectedFrame.jsonPayload;
+    if (selectedFrame.payload && !selectedFrame.isBinary) {
+      try {
+        const parsed = JSON.parse(selectedFrame.payload);
+        selectedFrame.jsonPayload = parsed;
+        selectedFrame.isJson = true;
+        return parsed;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }, [selectedFrame]);
+
   // Compute Diff vs Previous frame
   const diffEntries = useMemo(() => {
     if (!selectedFrame || viewMode !== 'diff') return [];
     const idx = allFrames.findIndex((f) => f.id === selectedFrame.id);
     const prev = idx > 0 ? allFrames[idx - 1] : null;
-    if (!prev?.jsonPayload || !selectedFrame.jsonPayload) return [];
-    return computeJsonDiff(prev.jsonPayload, selectedFrame.jsonPayload);
-  }, [selectedFrame, allFrames, viewMode]);
+    const currentJson = effectiveJsonPayload;
+    let prevJson = prev?.jsonPayload;
+    if (!prevJson && prev?.payload && !prev?.isBinary) {
+      try {
+        prevJson = JSON.parse(prev.payload);
+        prev.jsonPayload = prevJson;
+        prev.isJson = true;
+      } catch {
+        prevJson = null;
+      }
+    }
+    if (!prevJson || !currentJson) return [];
+    return computeJsonDiff(prevJson, currentJson);
+  }, [selectedFrame, allFrames, viewMode, effectiveJsonPayload]);
 
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
@@ -428,10 +456,10 @@ export const JsonInspector: React.FC = () => {
             </div>
           )
         ) : viewMode === 'tree' ? (
-          selectedFrame.isJson && selectedFrame.jsonPayload ? (
+          effectiveJsonPayload ? (
             <JsonTreeNode
               keyName="root"
-              value={selectedFrame.jsonPayload}
+              value={effectiveJsonPayload}
               currentPath=""
               onContextMenu={handleContextMenu}
               onShowAsColumn={(path, key) => addCustomColumn(path, key)}
@@ -448,7 +476,7 @@ export const JsonInspector: React.FC = () => {
           <pre className="text-[#9cdcfe] whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed select-text p-2 bg-[#181818] rounded border border-[#2d2d2d]">
             {(() => {
               try {
-                const parsed = selectedFrame.jsonPayload || JSON.parse(selectedFrame.payload);
+                const parsed = effectiveJsonPayload || JSON.parse(selectedFrame.payload);
                 return JSON.stringify(parsed, null, 2);
               } catch {
                 return selectedFrame.payload;
