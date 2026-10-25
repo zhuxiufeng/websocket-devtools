@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { useWSStore } from '../src/store/ws-store';
 import { FrameProcessor } from '../src/core/frame-processor';
 import { parseFilterQuery, matchesFilter } from '../src/core/filter-engine';
+import { highlightSearchText, subtreeHasMatch } from '../src/components/JsonInspector';
 import type { WSFrame } from '../src/types/websocket';
 
 describe('Comprehensive Self-Test & Edge Case Audit Suite', () => {
@@ -179,6 +180,36 @@ describe('Comprehensive Self-Test & Edge Case Audit Suite', () => {
     expect(processed.rpcKind).toBe('response');
     expect(processed.rpcId).toBe(44);
     expect(processed.jsonPayload.result.gcode_store).toHaveLength(1);
+  });
+
+  it('6. JsonInspector search matches deep keys/values and highlights text accurately', () => {
+    const deepPayload = {
+      jsonrpc: '2.0',
+      result: {
+        status: {
+          print_stats: {
+            state: 'standby',
+            info: {
+              total_layer: 250,
+              current_layer: 42,
+            },
+          },
+          heater_bed: {
+            temperature: 30.39,
+          },
+        },
+      },
+    };
+
+    expect(subtreeHasMatch('root', deepPayload, '', 'current_layer', true)).toBe(true);
+    expect(subtreeHasMatch('root', deepPayload, '', 'standby', true)).toBe(true);
+    expect(subtreeHasMatch('root', deepPayload, '', 'non_existent_key', true)).toBe(false);
+    expect(
+      subtreeHasMatch('heater_bed', deepPayload.result.status.heater_bed, 'result.status', 'current_layer', false)
+    ).toBe(false);
+
+    const highlighted = highlightSearchText('temperature_sensor chamber_temp', 'chamber_temp');
+    expect(highlighted).not.toBe('temperature_sensor chamber_temp');
   });
 });
 

@@ -11,9 +11,28 @@ import { useBridge } from './hooks/useBridge';
 export const App: React.FC = () => {
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
   const [showTelemetry, setShowTelemetry] = useState(true);
+  const [inspectorWidth, setInspectorWidth] = useState<number>(480);
+  const [isResizingInspector, setIsResizingInspector] = useState(false);
 
   // Initialize data stream bridge
   useBridge();
+
+  useEffect(() => {
+    if (!isResizingInspector) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = Math.max(280, Math.min(window.innerWidth - 360, window.innerWidth - e.clientX));
+      setInspectorWidth(newWidth);
+    };
+    const handleMouseUp = () => {
+      setIsResizingInspector(false);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizingInspector]);
 
   // Keyboard navigation shortcuts
   useEffect(() => {
@@ -105,8 +124,20 @@ export const App: React.FC = () => {
           <CommandConsole />
         </div>
 
-        {/* Right Pane: JSON Inspector & Telemetry Tracker */}
-        <div className="w-[420px] xl:w-[480px] shrink-0 flex flex-col min-h-0 border-l border-[#3c3c3c] bg-[#1e1e1e]">
+        {/* Right Pane: JSON Inspector & Telemetry Tracker (Resizable) */}
+        <div
+          style={{ width: `${inspectorWidth}px` }}
+          className="shrink-0 flex flex-col min-h-0 border-l border-[#3c3c3c] bg-[#1e1e1e] relative"
+        >
+          {/* Drag Resize Handle */}
+          <div
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setIsResizingInspector(true);
+            }}
+            className="absolute -left-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[#38bdf8]/60 z-40 transition-colors"
+            title="Drag to resize Inspector width"
+          />
           <JsonInspector />
           {showTelemetry && <TelemetryTracker />}
         </div>

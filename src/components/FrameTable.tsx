@@ -91,7 +91,7 @@ const FrameRow = React.memo<FrameRowProps>(({
       </div>
 
       {/* Method / RPC pairing */}
-      <div className="w-36 px-2 shrink-0 border-r border-[#2d2d2d]/50 flex items-center justify-between overflow-hidden">
+      <div className="w-48 px-2 shrink-0 border-r border-[#2d2d2d]/50 flex items-center justify-between overflow-hidden">
         <span className="truncate font-semibold text-[10.5px]">
           {frame.rpcKind === 'response' ? (
             <span className="text-emerald-400 flex items-center gap-1" title="JSON-RPC Response">
@@ -173,10 +173,15 @@ const FrameRow = React.memo<FrameRowProps>(({
 
       {/* Payload Preview */}
       <div
-        className="flex-1 min-w-[400px] px-2 truncate text-[#888888] hover:text-[#cccccc]"
-        title={frame.payload}
+        className="flex-1 min-w-[400px] px-2 whitespace-nowrap overflow-hidden text-ellipsis text-[#888888] hover:text-[#cccccc]"
+        title={frame.payload && frame.payload.length > 2000 ? frame.payload.slice(0, 2000) + '...' : frame.payload}
       >
-        {highlightText(frame.payload || '', highlightRules)}
+        {highlightText(
+          frame.payload && frame.payload.length > 1500
+            ? frame.payload.slice(0, 1500) + ' …'
+            : frame.payload || '',
+          highlightRules
+        )}
       </div>
     </div>
   );
@@ -331,6 +336,24 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
     }
   };
 
+  const totalMinWidth = useMemo(() => {
+    const baseColsWidth = 56 + 48 + 96 + 64 + 192; // w-14 + w-12 + w-24 + w-16 + w-48 = 456px
+    const customColsWidth = customColumns.reduce((sum, col) => sum + (col.width || 190), 0);
+    let maxPayloadLen = 0;
+    for (let i = 0; i < filteredFrames.length; i++) {
+      const len = filteredFrames[i].length || 0;
+      if (len > maxPayloadLen) {
+        maxPayloadLen = len;
+        if (maxPayloadLen >= 1500) {
+          maxPayloadLen = 1500;
+          break;
+        }
+      }
+    }
+    const payloadWidth = Math.max(400, Math.ceil(maxPayloadLen * 6.8) + 32);
+    return baseColsWidth + customColsWidth + payloadWidth;
+  }, [customColumns, filteredFrames]);
+
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-[#1e1e1e] border-r border-[#3c3c3c] overflow-hidden select-none relative">
       {/* Floating Unseen Frames Notification Pill */}
@@ -350,12 +373,15 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
         ref={headerRef}
         className="h-7 bg-[#252526] border-b border-[#3c3c3c] overflow-hidden select-none shrink-0"
       >
-        <div className="flex items-center text-[11px] font-semibold text-[#aaaaaa] min-w-[950px] w-max">
+        <div
+          style={{ minWidth: `${totalMinWidth}px` }}
+          className="flex items-center h-full text-[11px] font-semibold text-[#aaaaaa] w-full"
+        >
           <div className="w-14 px-2 text-right border-r border-[#3c3c3c]/60 shrink-0">#</div>
           <div className="w-12 px-1 text-center border-r border-[#3c3c3c]/60 shrink-0">Dir</div>
           <div className="w-24 px-2 border-r border-[#3c3c3c]/60 shrink-0">Time</div>
           <div className="w-16 px-2 text-right border-r border-[#3c3c3c]/60 shrink-0">Len</div>
-          <div className="w-36 px-2 border-r border-[#3c3c3c]/60 shrink-0">Method / RPC</div>
+          <div className="w-48 px-2 border-r border-[#3c3c3c]/60 shrink-0">Method / RPC</div>
 
           {/* Dynamic Custom Columns */}
           {customColumns.map((col) => {
@@ -410,8 +436,8 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
           <div
             style={{
               height: `${rowVirtualizer.getTotalSize()}px`,
-              minWidth: '950px',
-              width: 'max-content',
+              minWidth: `${totalMinWidth}px`,
+              width: '100%',
               position: 'relative',
             }}
           >

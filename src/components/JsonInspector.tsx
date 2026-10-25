@@ -17,12 +17,13 @@ import {
   ArrowDown,
   ExternalLink,
   Layers,
-  RotateCcw,
   GitCompare,
+  Search,
+  X,
+  ChevronUp,
 } from 'lucide-react';
 import { getDisambiguatedPathAndName } from '../utils/path-helper';
 import { computeJsonDiff } from '../utils/json-diff';
-import { sendBridgeMessage } from '../hooks/useBridge';
 
 interface ContextMenuState {
   visible: boolean;
@@ -31,6 +32,68 @@ interface ContextMenuState {
   path: string;
   keyName: string;
   value: any;
+}
+
+export function highlightSearchText(text: string, query: string): React.ReactNode {
+  const trimmed = query.trim();
+  if (!trimmed || !text) return text;
+
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${escaped})`, 'gi');
+  const parts = text.split(regex);
+  if (parts.length === 1) return text;
+
+  let matchCount = 0;
+  const MAX_HIGHLIGHTS = 500;
+
+  return (
+    <>
+      {parts.map((part, idx) => {
+        if (idx % 2 === 1 && matchCount < MAX_HIGHLIGHTS) {
+          matchCount++;
+          return (
+            <mark
+              key={idx}
+              data-inspector-match="true"
+              className="bg-amber-500/35 text-amber-200 border border-amber-400/60 rounded px-0.5 font-semibold"
+            >
+              {part}
+            </mark>
+          );
+        }
+        return <React.Fragment key={idx}>{part}</React.Fragment>;
+      })}
+    </>
+  );
+}
+
+export function subtreeHasMatch(
+  keyName: string,
+  value: any,
+  currentPath: string,
+  queryLower: string,
+  isRoot = false
+): boolean {
+  if (!queryLower) return true;
+  const thisPath = isRoot ? '' : currentPath ? `${currentPath}.${keyName}` : keyName;
+
+  if (!isRoot) {
+    if (keyName.toLowerCase().includes(queryLower) || thisPath.toLowerCase().includes(queryLower)) {
+      return true;
+    }
+  }
+
+  if (value !== null && typeof value === 'object') {
+    for (const k of Object.keys(value)) {
+      if (subtreeHasMatch(k, value[k], thisPath, queryLower, false)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  const valStr = String(value).toLowerCase();
+  return valStr.includes(queryLower);
 }
 
 export const JsonInspector: React.FC = () => {
@@ -58,7 +121,10 @@ export const JsonInspector: React.FC = () => {
 
   const [viewMode, setViewMode] = useState<'tree' | 'diff' | 'snapshot' | 'formatted' | 'raw'>('tree');
   const [copied, setCopied] = useState(false);
-  const [replayed, setReplayed] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterMatchesOnly, setFilterMatchesOnly] = useState(false);
+  const [activeMatchIndex, setActiveMatchIndex] = useState(0);
+  const [totalMatches, setTotalMatches] = useState(0);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
     x: 0,
@@ -69,6 +135,8 @@ export const JsonInspector: React.FC = () => {
   });
 
   const menuRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Fallback lazy parse to ensure Tree/Diff always works even if jsonPayload wasn't pre-populated
   const effectiveJsonPayload = useMemo(() => {
@@ -147,6 +215,68 @@ export const JsonInspector: React.FC = () => {
     return getSnapshotAtSeq(selectedFrame.connectionId, selectedFrame.seq ?? 0);
   }, [selectedFrame, viewMode, getSnapshotAtSeq]);
 
+  const trimmedQuery = searchQuery.trim();
+  const queryLower = trimmedQuery.toLowerCase();
+
+  const filteredDiffEntries = useMemo(() => {
+    if (!queryLower || !filterMatchesOnly) return diffEntries;
+    return diffEntries.filter((d) => {
+      const oldStr = typeof d.oldValue === 'object' ? JSON.stringify(d.oldValue) : String(d.oldValue ?? '');
+      const newStr = typeof d.newValue === 'object' ? JSON.stringify(d.newValue) : String(d.newValue ?? '');
+      return (
+        d.path.toLowerCase().includes(queryLower) ||
+        oldStr.toLowerCase().includes(queryLower) ||
+        newStr.toLowerCase().includes(queryLower)
+      );
+    });
+  }, [diffEntries, queryLower, filterMatchesOnly]);
+
+  // Reset activeMatchIndex when search query or viewMode changes
+  useEffect(() => {
+    setActiveMatchIndex(0);
+  }, [trimmedQuery, viewMode, filterMatchesOnly, selectedFrame?.id]);
+
+  // Count rendered <mark data-inspector-match="true"> elements and highlight/scroll to active match
+  useEffect(() => {
+    if (!contentRef.current || !trimmedQuery) {
+      setTotalMatches(0);
+      return;
+    }
+
+    const marks = Array.from(
+      contentRef.current.querySelectorAll<HTMLElement>('mark[data-inspector-match="true"]')
+    );
+    setTotalMatches(marks.length);
+
+    if (marks.length === 0) return;
+
+    const safeIdx = ((activeMatchIndex % marks.length) + marks.length) % marks.length;
+    marks.forEach((el, idx) => {
+      if (idx === safeIdx) {
+        el.className =
+          'bg-orange-500 text-black border border-orange-300 rounded px-0.5 font-bold ring-1 ring-orange-300';
+      } else {
+        el.className =
+          'bg-amber-500/35 text-amber-200 border border-amber-400/60 rounded px-0.5 font-semibold';
+      }
+    });
+
+    const target = marks[safeIdx];
+    if (target && typeof target.scrollIntoView === 'function') {
+      target.scrollIntoView({ block: 'center' });
+    }
+  }, [trimmedQuery, activeMatchIndex, viewMode, filterMatchesOnly, selectedFrame?.id, effectiveJsonPayload, snapshotData]);
+
+  const handleNextMatch = () => {
+    if (totalMatches === 0) return;
+    setActiveMatchIndex((prev) => (prev + 1) % totalMatches);
+  };
+
+  const handlePrevMatch = () => {
+    if (totalMatches === 0) return;
+    setActiveMatchIndex((prev) => (prev - 1 + totalMatches) % totalMatches);
+  };
+
   if (!selectedFrame) {
     return (
       <div className="flex-1 bg-[#1e1e1e] flex flex-col items-center justify-center text-xs text-[#858585] p-4 select-none">
@@ -160,7 +290,16 @@ export const JsonInspector: React.FC = () => {
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-[#1e1e1e] overflow-hidden select-text text-xs">
+    <div
+      className="flex-1 flex flex-col min-h-0 bg-[#1e1e1e] overflow-hidden select-text text-xs"
+      onKeyDown={(e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+          e.preventDefault();
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+        }
+      }}
+    >
       {/* Header with Freeze/Follow Controls */}
       <div className="h-8 px-3 bg-[#252526] border-b border-[#3c3c3c] flex items-center justify-between select-none shrink-0 gap-2">
         {/* Frame Info */}
@@ -224,20 +363,6 @@ export const JsonInspector: React.FC = () => {
           >
             <ArrowDown className="w-2.5 h-2.5" />
             <span>Latest</span>
-          </button>
-
-          {/* Replay Frame */}
-          <button
-            onClick={() => {
-              sendBridgeMessage(selectedFrame.connectionId, selectedFrame.payload);
-              setReplayed(true);
-              setTimeout(() => setReplayed(false), 1500);
-            }}
-            className="px-2 py-0.5 bg-[#2d2d2d] hover:bg-[#383838] text-[#cccccc] hover:text-emerald-400 rounded border border-[#444444] flex items-center gap-1 text-[10px] transition-colors"
-            title="Replay / Re-send this payload over WebSocket"
-          >
-            {replayed ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <RotateCcw className="w-2.5 h-2.5" />}
-            <span>{replayed ? 'Sent!' : 'Replay'}</span>
           </button>
 
           {/* Copy Payload */}
@@ -371,61 +496,149 @@ export const JsonInspector: React.FC = () => {
         </div>
       </div>
 
+      {/* Inspector Search Bar */}
+      <div className="h-7 px-2.5 bg-[#222223] border-b border-[#303030] flex items-center gap-1.5 select-none shrink-0">
+        <div className="relative flex-1 flex items-center">
+          <Search className="w-3 h-3 text-[#777777] absolute left-2 pointer-events-none" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                if (e.shiftKey) {
+                  handlePrevMatch();
+                } else {
+                  handleNextMatch();
+                }
+              } else if (e.key === 'Escape') {
+                setSearchQuery('');
+              }
+            }}
+            placeholder="Search key or value in payload... (Enter / Shift+Enter)"
+            className="w-full h-5 pl-6 pr-6 bg-[#181818] border border-[#383838] focus:border-[#007acc] rounded text-[11px] text-[#dddddd] placeholder-[#666666] outline-none font-mono"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-1.5 text-[#777777] hover:text-[#cccccc]"
+              title="Clear search (Esc)"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+
+        {trimmedQuery && (
+          <div className="flex items-center gap-1 shrink-0">
+            <span
+              className={`text-[10px] font-mono px-1 ${
+                totalMatches > 0 ? 'text-amber-300' : 'text-rose-400'
+              }`}
+            >
+              {totalMatches > 0 ? `${(activeMatchIndex % totalMatches) + 1}/${totalMatches}` : '0/0'}
+            </span>
+            <button
+              onClick={handlePrevMatch}
+              disabled={totalMatches === 0}
+              className="p-0.5 rounded bg-[#2d2d2d] hover:bg-[#383838] disabled:opacity-40 text-[#cccccc] border border-[#3c3c3c]"
+              title="Previous match (Shift+Enter)"
+            >
+              <ChevronUp className="w-3 h-3" />
+            </button>
+            <button
+              onClick={handleNextMatch}
+              disabled={totalMatches === 0}
+              className="p-0.5 rounded bg-[#2d2d2d] hover:bg-[#383838] disabled:opacity-40 text-[#cccccc] border border-[#3c3c3c]"
+              title="Next match (Enter)"
+            >
+              <ChevronDown className="w-3 h-3" />
+            </button>
+          </div>
+        )}
+
+        {(viewMode === 'tree' || viewMode === 'snapshot' || viewMode === 'diff') && (
+          <button
+            onClick={() => setFilterMatchesOnly(!filterMatchesOnly)}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-medium border flex items-center gap-1 transition-colors shrink-0 ${
+              filterMatchesOnly
+                ? 'bg-[#094771] text-white border-[#38bdf8]/60'
+                : 'bg-[#2a2d2e] text-[#999999] hover:text-[#dddddd] border-[#3c3c3c]'
+            }`}
+            title="Filter tree/diff to only show matching branches"
+          >
+            <Filter className="w-2.5 h-2.5" />
+            <span>Filter</span>
+          </button>
+        )}
+      </div>
+
       {/* Main Content View */}
-      <div className="flex-1 overflow-auto p-2.5 font-mono text-[12px] leading-5 select-text">
+      <div
+        ref={contentRef}
+        className="flex-1 overflow-auto p-2.5 font-mono text-[12px] leading-5 select-text"
+      >
         {viewMode === 'diff' ? (
-          diffEntries.length === 0 ? (
+          filteredDiffEntries.length === 0 ? (
             <div className="p-4 text-center text-[#777777] text-xs font-sans">
-              No differences detected compared to the previous frame (or no previous frame recorded).
+              {diffEntries.length === 0
+                ? 'No differences detected compared to the previous frame (or no previous frame recorded).'
+                : `No diff fields matching "${trimmedQuery}".`}
             </div>
           ) : (
             <div className="space-y-1.5 p-1 font-mono text-[11px]">
               <div className="text-[10px] text-[#888888] pb-1 border-b border-[#333333] mb-2 flex items-center justify-between">
-                <span>Changes vs previous frame ({diffEntries.length} fields):</span>
+                <span>Changes vs previous frame ({filteredDiffEntries.length} fields):</span>
                 <span className="text-[#38bdf8]">[+] added, [~] changed, [-] removed</span>
               </div>
-              {diffEntries.map((d, i) => (
-                <div
-                  key={i}
-                  className={`p-1.5 rounded border text-[11px] flex flex-col gap-0.5 ${
-                    d.type === 'added'
-                      ? 'bg-emerald-950/30 border-emerald-800 text-emerald-300'
-                      : d.type === 'removed'
-                      ? 'bg-rose-950/30 border-rose-800 text-rose-300'
-                      : 'bg-amber-950/30 border-amber-800 text-amber-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold flex items-center gap-1 font-mono">
-                      <span>{d.type === 'added' ? '+' : d.type === 'removed' ? '-' : '~'}</span>
-                      <span className="text-white">{d.path}</span>
-                    </span>
-                    <span className="text-[9px] uppercase px-1 rounded bg-black/40 text-[#aaaaaa]">
-                      {d.type}
-                    </span>
-                  </div>
+              {filteredDiffEntries.map((d, i) => {
+                const oldStr = typeof d.oldValue === 'object' ? JSON.stringify(d.oldValue) : String(d.oldValue);
+                const newStr = typeof d.newValue === 'object' ? JSON.stringify(d.newValue) : String(d.newValue);
+                return (
+                  <div
+                    key={i}
+                    className={`p-1.5 rounded border text-[11px] flex flex-col gap-0.5 ${
+                      d.type === 'added'
+                        ? 'bg-emerald-950/30 border-emerald-800 text-emerald-300'
+                        : d.type === 'removed'
+                        ? 'bg-rose-950/30 border-rose-800 text-rose-300'
+                        : 'bg-amber-950/30 border-amber-800 text-amber-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold flex items-center gap-1 font-mono">
+                        <span>{d.type === 'added' ? '+' : d.type === 'removed' ? '-' : '~'}</span>
+                        <span className="text-white">{highlightSearchText(d.path, trimmedQuery)}</span>
+                      </span>
+                      <span className="text-[9px] uppercase px-1 rounded bg-black/40 text-[#aaaaaa]">
+                        {d.type}
+                      </span>
+                    </div>
 
-                  {d.type === 'changed' ? (
-                    <div className="text-[10px] pl-3 flex items-center gap-2 font-mono">
-                      <span className="text-rose-400 line-through truncate max-w-[150px]">
-                        {typeof d.oldValue === 'object' ? JSON.stringify(d.oldValue) : String(d.oldValue)}
-                      </span>
-                      <span className="text-[#888888]">→</span>
-                      <span className="text-emerald-400 font-bold truncate max-w-[200px]">
-                        {typeof d.newValue === 'object' ? JSON.stringify(d.newValue) : String(d.newValue)}
-                      </span>
-                    </div>
-                  ) : d.type === 'added' ? (
-                    <div className="text-[10px] pl-3 text-emerald-400 font-mono truncate">
-                      {typeof d.newValue === 'object' ? JSON.stringify(d.newValue) : String(d.newValue)}
-                    </div>
-                  ) : (
-                    <div className="text-[10px] pl-3 text-rose-400 font-mono truncate">
-                      (was: {typeof d.oldValue === 'object' ? JSON.stringify(d.oldValue) : String(d.oldValue)})
-                    </div>
-                  )}
-                </div>
-              ))}
+                    {d.type === 'changed' ? (
+                      <div className="text-[10px] pl-3 flex items-center gap-2 font-mono">
+                        <span className="text-rose-400 line-through truncate max-w-[150px]">
+                          {highlightSearchText(oldStr, trimmedQuery)}
+                        </span>
+                        <span className="text-[#888888]">→</span>
+                        <span className="text-emerald-400 font-bold truncate max-w-[200px]">
+                          {highlightSearchText(newStr, trimmedQuery)}
+                        </span>
+                      </div>
+                    ) : d.type === 'added' ? (
+                      <div className="text-[10px] pl-3 text-emerald-400 font-mono truncate">
+                        {highlightSearchText(newStr, trimmedQuery)}
+                      </div>
+                    ) : (
+                      <div className="text-[10px] pl-3 text-rose-400 font-mono truncate">
+                        (was: {highlightSearchText(oldStr, trimmedQuery)})
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )
         ) : viewMode === 'snapshot' ? (
@@ -448,6 +661,8 @@ export const JsonInspector: React.FC = () => {
                 onTrackOnGraph={(path, key) => addTelemetrySeries(path, key)}
                 isRoot
                 depth={0}
+                searchQuery={trimmedQuery}
+                filterMatchesOnly={filterMatchesOnly}
               />
             </div>
           ) : (
@@ -466,26 +681,31 @@ export const JsonInspector: React.FC = () => {
               onTrackOnGraph={(path, key) => addTelemetrySeries(path, key)}
               isRoot
               depth={0}
+              searchQuery={trimmedQuery}
+              filterMatchesOnly={filterMatchesOnly}
             />
           ) : (
             <pre className="text-[#ce9178] whitespace-pre-wrap break-all font-mono select-text">
-              {selectedFrame.payload}
+              {highlightSearchText(selectedFrame.payload, trimmedQuery)}
             </pre>
           )
         ) : viewMode === 'formatted' ? (
           <pre className="text-[#9cdcfe] whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed select-text p-2 bg-[#181818] rounded border border-[#2d2d2d]">
-            {(() => {
-              try {
-                const parsed = effectiveJsonPayload || JSON.parse(selectedFrame.payload);
-                return JSON.stringify(parsed, null, 2);
-              } catch {
-                return selectedFrame.payload;
-              }
-            })()}
+            {highlightSearchText(
+              (() => {
+                try {
+                  const parsed = effectiveJsonPayload || JSON.parse(selectedFrame.payload);
+                  return JSON.stringify(parsed, null, 2);
+                } catch {
+                  return selectedFrame.payload;
+                }
+              })(),
+              trimmedQuery
+            )}
           </pre>
         ) : (
           <pre className="text-[#ce9178] whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed select-text p-2 bg-[#181818] rounded border border-[#2d2d2d]">
-            {selectedFrame.payload}
+            {highlightSearchText(selectedFrame.payload, trimmedQuery)}
           </pre>
         )}
       </div>
@@ -590,6 +810,9 @@ interface JsonTreeNodeProps {
   onTrackOnGraph: (path: string, keyName: string) => void;
   isRoot?: boolean;
   depth: number;
+  searchQuery?: string;
+  filterMatchesOnly?: boolean;
+  ancestorMatched?: boolean;
 }
 
 const JsonTreeNode: React.FC<JsonTreeNodeProps> = React.memo(({
@@ -601,6 +824,9 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = React.memo(({
   onTrackOnGraph,
   isRoot = false,
   depth,
+  searchQuery = '',
+  filterMatchesOnly = false,
+  ancestorMatched = false,
 }) => {
   const [collapsed, setCollapsed] = useState(depth > 3);
 
@@ -608,6 +834,30 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = React.memo(({
   const isArray = Array.isArray(value);
 
   const thisPath = isRoot ? '' : currentPath ? `${currentPath}.${keyName}` : keyName;
+  const queryLower = searchQuery.toLowerCase();
+
+  const selfKeyMatches =
+    Boolean(queryLower) &&
+    !isRoot &&
+    (keyName.toLowerCase().includes(queryLower) || thisPath.toLowerCase().includes(queryLower));
+
+  const hasSubtreeMatch = useMemo(() => {
+    if (!queryLower) return true;
+    return subtreeHasMatch(keyName, value, currentPath, queryLower, isRoot);
+  }, [keyName, value, currentPath, queryLower, isRoot]);
+
+  // Auto-expand when searching and this subtree contains a match
+  useEffect(() => {
+    if (queryLower && hasSubtreeMatch) {
+      setCollapsed(false);
+    } else if (!queryLower) {
+      setCollapsed(depth > 3);
+    }
+  }, [queryLower, hasSubtreeMatch, depth]);
+
+  if (queryLower && filterMatchesOnly && !ancestorMatched && !hasSubtreeMatch) {
+    return null;
+  }
 
   if (isObject) {
     const keys = Object.keys(value);
@@ -631,7 +881,7 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = React.memo(({
 
             {!isRoot && (
               <span className="text-[#9cdcfe] font-semibold select-text">
-                {keyName}:{' '}
+                {highlightSearchText(keyName, searchQuery)}:{' '}
               </span>
             )}
 
@@ -640,7 +890,11 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = React.memo(({
               {collapsed && ` ...${count} items `}
               {isNumberArray && !collapsed && (
                 <span className="text-[#b5cea8] font-mono text-[11px] select-text">
-                  {' '}{value.map((v: number) => (Number.isInteger(v) ? v : v.toFixed(2))).join(', ')}{' '}
+                  {' '}
+                  {highlightSearchText(
+                    value.map((v: number) => (Number.isInteger(v) ? v : v.toFixed(2))).join(', '),
+                    searchQuery
+                  )}{' '}
                 </span>
               )}
               {(!collapsed && count === 0) || (isNumberArray && !collapsed) ? bracketClose : ''}
@@ -691,6 +945,9 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = React.memo(({
                 onShowAsColumn={onShowAsColumn}
                 onTrackOnGraph={onTrackOnGraph}
                 depth={depth + 1}
+                searchQuery={searchQuery}
+                filterMatchesOnly={filterMatchesOnly}
+                ancestorMatched={ancestorMatched || selfKeyMatches}
               />
             ))}
             <div className="text-[#808080] pl-1">{bracketClose}</div>
@@ -723,9 +980,11 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = React.memo(({
       onContextMenu={(e) => onContextMenu(e, thisPath, keyName, value)}
     >
       <div className="flex items-center gap-1 truncate select-text">
-        <span className="text-[#9cdcfe] font-semibold select-text">{keyName}: </span>
+        <span className="text-[#9cdcfe] font-semibold select-text">
+          {highlightSearchText(keyName, searchQuery)}:{' '}
+        </span>
         <span className={`${valueColor} font-mono select-text truncate max-w-md`} title={String(value)}>
-          {displayValue}
+          {highlightSearchText(displayValue, searchQuery)}
         </span>
       </div>
 

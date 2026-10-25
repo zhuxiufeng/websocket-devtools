@@ -1,6 +1,6 @@
 {
   "name": "ws-telemetry-analyzer",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "description": "High-frequency WebSocket Telemetry & Real-time Stream Analyzer for Chrome DevTools",
   "main": "index.js",
