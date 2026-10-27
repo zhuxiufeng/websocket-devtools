@@ -39,6 +39,8 @@ export interface WSFrame {
   rpcLatencyMs?: number;
   /** Moonraker status delta contained in this frame (reference into jsonPayload) */
   statusDelta?: Record<string, any>;
+  /** Time delta in milliseconds from the previous frame on this connection (or stream) */
+  deltaMs?: number;
   /** Last-known values for custom columns this frame does not contain itself */
   carried?: Record<string, CarriedValue>;
 }

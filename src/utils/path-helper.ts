@@ -11,12 +11,18 @@ export function getDisambiguatedPathAndName(fullPath: string, givenName?: string
   }
 
   // Normalize path by stripping JSON-RPC transport boilerplate (e.g. params[0]., params.0., params., result.)
-  const cleanPath = fullPath
+  let cleanPath = fullPath
     .replace(/^params\[\d+\]\./i, '')
     .replace(/^params\.\d+\./i, '')
     .replace(/^params\./i, '')
     .replace(/^result\./i, '')
     .trim();
+
+  // If stripping left a bare numeric index (e.g. 'params.1' -> '1'), retain fullPath
+  // so direct access targets params[1] instead of randomly colliding with nested arrays.
+  if (/^\d+$/.test(cleanPath)) {
+    cleanPath = fullPath.trim();
+  }
 
   const segments = cleanPath.split('.').filter(Boolean);
   const leafKey = segments[segments.length - 1] || cleanPath;

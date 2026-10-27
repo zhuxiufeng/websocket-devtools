@@ -85,6 +85,36 @@ const FrameRow = React.memo<FrameRowProps>(({
         {frame.timeFormatted}
       </div>
 
+      {/* Inter-frame Interval (Δt) / Rate */}
+      <div
+        className="w-16 px-1.5 text-right font-mono text-[10px] shrink-0 border-r border-[#2d2d2d]/50 truncate"
+        title={
+          frame.deltaMs !== undefined
+            ? `Δt: ${frame.deltaMs.toFixed(1)}ms (${(frame.deltaMs > 0 ? 1000 / frame.deltaMs : 0).toFixed(1)} Hz)`
+            : 'First frame'
+        }
+      >
+        {frame.deltaMs !== undefined ? (
+          <span
+            className={
+              frame.deltaMs >= 1000
+                ? 'text-amber-400 font-medium'
+                : frame.deltaMs >= 100
+                ? 'text-sky-400'
+                : frame.deltaMs >= 20
+                ? 'text-emerald-400'
+                : 'text-[#888888]'
+            }
+          >
+            {frame.deltaMs >= 1000
+              ? `${(frame.deltaMs / 1000).toFixed(2)}s`
+              : `${frame.deltaMs.toFixed(0)}ms`}
+          </span>
+        ) : (
+          <span className="text-[#555555]">-</span>
+        )}
+      </div>
+
       {/* Length */}
       <div className="w-16 px-2 text-right text-[#888888] shrink-0 border-r border-[#2d2d2d]/50">
         {frame.length}
@@ -337,7 +367,7 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
   };
 
   const totalMinWidth = useMemo(() => {
-    const baseColsWidth = 56 + 48 + 96 + 64 + 192; // w-14 + w-12 + w-24 + w-16 + w-48 = 456px
+    const baseColsWidth = 56 + 48 + 96 + 64 + 64 + 192; // w-14 + w-12 + w-24 + w-16(Δt) + w-16(Len) + w-48 = 520px
     const customColsWidth = customColumns.reduce((sum, col) => sum + (col.width || 190), 0);
     let maxPayloadLen = 0;
     for (let i = 0; i < filteredFrames.length; i++) {
@@ -380,6 +410,7 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
           <div className="w-14 px-2 text-right border-r border-[#3c3c3c]/60 shrink-0">#</div>
           <div className="w-12 px-1 text-center border-r border-[#3c3c3c]/60 shrink-0">Dir</div>
           <div className="w-24 px-2 border-r border-[#3c3c3c]/60 shrink-0">Time</div>
+          <div className="w-16 px-1.5 text-right border-r border-[#3c3c3c]/60 shrink-0" title="Inter-frame interval (Δt) / Frequency">Δt</div>
           <div className="w-16 px-2 text-right border-r border-[#3c3c3c]/60 shrink-0">Len</div>
           <div className="w-48 px-2 border-r border-[#3c3c3c]/60 shrink-0">Method / RPC</div>
 

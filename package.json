@@ -1,6 +1,6 @@
 {
   "name": "ws-telemetry-analyzer",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "description": "High-frequency WebSocket Telemetry & Real-time Stream Analyzer for Chrome DevTools",
   "main": "index.js",
@@ -10,7 +10,9 @@
     "zip": "wxt zip",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "notes": "node scripts/gen-release-notes.mjs",
+    "release-notes": "node scripts/gen-release-notes.mjs"
   },
   "keywords": [],
   "author": "",

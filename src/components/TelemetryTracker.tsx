@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { useWSStore } from '../store/ws-store';
 import {
   Activity,
@@ -13,6 +13,7 @@ import {
   Sliders,
   Plus,
   RotateCcw,
+  BarChart2,
 } from 'lucide-react';
 
 const extractExplicitUnit = (label: string): string => {
@@ -27,12 +28,15 @@ export const TelemetryTracker: React.FC = () => {
   const clearTelemetryPoints = useWSStore((s) => s.clearTelemetryPoints);
   const customColumns = useWSStore((s) => s.customColumns);
   const addTelemetrySeries = useWSStore((s) => s.addTelemetrySeries);
+  const frames = useWSStore((s) => s.frames);
 
   const [windowSize, setWindowSize] = useState<number>(100);
   const [isMaximized, setIsMaximized] = useState<boolean>(false);
   const [scaleMode, setScaleMode] = useState<'autofit' | 'shared'>('autofit');
+  const [showStats, setShowStats] = useState<boolean>(false);
   const [zoomRange, setZoomRange] = useState<{ minTime: number; maxTime: number } | null>(null);
   const [dragSelect, setDragSelect] = useState<{ startX: number; currentX: number } | null>(null);
+  const [focusedSeriesId, setFocusedSeriesId] = useState<string | null>(null);
   const [hoverPoint, setHoverPoint] = useState<{
     index: number;
     x: number;
@@ -42,6 +46,17 @@ export const TelemetryTracker: React.FC = () => {
   } | null>(null);
 
   const svgRef = useRef<SVGSVGElement>(null);
+
+  // Listen for Escape key to reset Box Zoom
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && zoomRange) {
+        setZoomRange(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [zoomRange]);
 
   // Helper to get compact label without ugly mid-word truncation
   const getShortLabel = (label: string) => {
@@ -100,6 +115,15 @@ export const TelemetryTracker: React.FC = () => {
           if (p.time > maxTime) maxTime = p.time;
         });
       });
+
+      // Anchor live maxTime to the latest incoming frame timestamp so that the time-axis
+      // always rolls forward continuously even if a metric is temporarily unchanged
+      if (frames.length > 0) {
+        const latestFrameTs = frames[frames.length - 1]?.timestamp;
+        if (latestFrameTs && latestFrameTs > maxTime) {
+          maxTime = latestFrameTs;
+        }
+      }
     }
 
     if (globalMin === Infinity) {
@@ -130,23 +154,37 @@ export const TelemetryTracker: React.FC = () => {
 
     // Compute paths per series
     const seriesPaths = slicedSeries.map((s) => {
-      if (s.dataPoints.length < 2) {
+      if (s.dataPoints.length === 0) {
         return {
           series: s,
           path: '',
-          currentVal: s.dataPoints[s.dataPoints.length - 1]?.value ?? null,
+          currentVal: null,
           sMin: 0,
           sMax: 100,
+          min: 0,
+          max: 0,
+          avg: 0,
+          span: 0,
+          count: 0,
         };
       }
+
+      let realMin = Infinity;
+      let realMax = -Infinity;
+      let sum = 0;
+      s.dataPoints.forEach((p) => {
+        if (p.value < realMin) realMin = p.value;
+        if (p.value > realMax) realMax = p.value;
+        sum += p.value;
+      });
+      const realAvg = s.dataPoints.length > 0 ? sum / s.dataPoints.length : 0;
+      const realSpan = s.dataPoints.length > 0 ? realMax - realMin : 0;
 
       let sMin = Infinity;
       let sMax = -Infinity;
       if (scaleMode === 'autofit') {
-        s.dataPoints.forEach((p) => {
-          if (p.value < sMin) sMin = p.value;
-          if (p.value > sMax) sMax = p.value;
-        });
+        sMin = realMin;
+        sMax = realMax;
         if (sMin === sMax) {
           sMin -= 0.5;
           sMax += 0.5;
@@ -168,34 +206,58 @@ export const TelemetryTracker: React.FC = () => {
       let minPixelY = Infinity;
       let maxPixelY = -Infinity;
 
-      for (let idx = 0; idx < s.dataPoints.length; idx++) {
-        const p = s.dataPoints[idx];
-        const progress = timeSpan > 0 ? (p.time - minTime) / timeSpan : idx / Math.max(1, maxPoints - 1);
+      if (s.dataPoints.length === 1) {
+        const p = s.dataPoints[0];
+        const progress = timeSpan > 0 ? (p.time - minTime) / timeSpan : 0;
         const x = padding.left + progress * plotW;
         const normalizedY = (p.value - sMin) / sRange;
         const y = padding.top + (1 - normalizedY) * plotH;
-        const currentPixelX = Math.round(x);
+        points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+        // If live time is ahead, extend horizontal line to maxTime
+        if (!zoomRange && timeSpan > 0 && maxTime > p.time) {
+          const xEnd = padding.left + plotW;
+          points.push(`${xEnd.toFixed(1)},${y.toFixed(1)}`);
+        }
+      } else {
+        for (let idx = 0; idx < s.dataPoints.length; idx++) {
+          const p = s.dataPoints[idx];
+          const progress = timeSpan > 0 ? (p.time - minTime) / timeSpan : idx / Math.max(1, maxPoints - 1);
+          const x = padding.left + progress * plotW;
+          const normalizedY = (p.value - sMin) / sRange;
+          const y = padding.top + (1 - normalizedY) * plotH;
+          const currentPixelX = Math.round(x);
 
-        if (idx === 0 || idx === s.dataPoints.length - 1) {
-          points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
-          lastPixelX = currentPixelX;
-          minPixelY = y;
-          maxPixelY = y;
-          continue;
+          if (idx === 0 || idx === s.dataPoints.length - 1) {
+            points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+            lastPixelX = currentPixelX;
+            minPixelY = y;
+            maxPixelY = y;
+            continue;
+          }
+
+          if (currentPixelX === lastPixelX) {
+            if (y < minPixelY) minPixelY = y;
+            if (y > maxPixelY) maxPixelY = y;
+          } else {
+            if (minPixelY !== maxPixelY && minPixelY !== Infinity) {
+              points.push(`${lastPixelX.toFixed(1)},${minPixelY.toFixed(1)}`);
+              points.push(`${lastPixelX.toFixed(1)},${maxPixelY.toFixed(1)}`);
+            }
+            points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+            lastPixelX = currentPixelX;
+            minPixelY = y;
+            maxPixelY = y;
+          }
         }
 
-        if (currentPixelX === lastPixelX) {
-          if (y < minPixelY) minPixelY = y;
-          if (y > maxPixelY) maxPixelY = y;
-        } else {
-          if (minPixelY !== maxPixelY && minPixelY !== Infinity) {
-            points.push(`${lastPixelX.toFixed(1)},${minPixelY.toFixed(1)}`);
-            points.push(`${lastPixelX.toFixed(1)},${maxPixelY.toFixed(1)}`);
+        // Real-time projection: extend the line horizontally to the live edge if unchanged
+        if (!zoomRange && timeSpan > 0) {
+          const lastP = s.dataPoints[s.dataPoints.length - 1];
+          if (maxTime > lastP.time) {
+            const lastY = padding.top + (1 - (lastP.value - sMin) / sRange) * plotH;
+            const xEnd = padding.left + plotW;
+            points.push(`${xEnd.toFixed(1)},${lastY.toFixed(1)}`);
           }
-          points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
-          lastPixelX = currentPixelX;
-          minPixelY = y;
-          maxPixelY = y;
         }
       }
 
@@ -205,6 +267,11 @@ export const TelemetryTracker: React.FC = () => {
         currentVal: s.dataPoints[s.dataPoints.length - 1]?.value ?? null,
         sMin,
         sMax,
+        min: realMin !== Infinity ? realMin : 0,
+        max: realMax !== -Infinity ? realMax : 0,
+        avg: realAvg,
+        span: realSpan,
+        count: s.dataPoints.length,
       };
     });
 
@@ -279,7 +346,7 @@ export const TelemetryTracker: React.FC = () => {
       timeTicks,
       yAxisTicks,
     };
-  }, [telemetrySeries, windowSize, isMaximized, scaleMode, zoomRange]);
+  }, [telemetrySeries, windowSize, isMaximized, scaleMode, zoomRange, frames]);
 
   // Handle Zoom via mouse wheel
   const handleWheel = (e: React.WheelEvent) => {
@@ -466,11 +533,18 @@ export const TelemetryTracker: React.FC = () => {
             {telemetrySeries.map((s) => {
               const latestVal = s.dataPoints[s.dataPoints.length - 1]?.value;
               const short = getShortLabel(s.label);
+              const isFocused = focusedSeriesId === s.id;
               return (
                 <div
                   key={s.id}
-                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] bg-[#1e1e1e] border border-[#3c3c3c] shrink-0 hover:border-[#555555] transition-colors"
-                  title={s.label}
+                  onMouseEnter={() => setFocusedSeriesId(s.id)}
+                  onMouseLeave={() => setFocusedSeriesId(null)}
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] bg-[#1e1e1e] border shrink-0 transition-all cursor-pointer select-none ${
+                    isFocused
+                      ? 'border-[#38bdf8] shadow-md shadow-[#38bdf8]/10 bg-[#25282a]'
+                      : 'border-[#3c3c3c] hover:border-[#666666]'
+                  }`}
+                  title={`${s.label} (Hover to highlight curve)`}
                 >
                   <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
                   <span className="text-[#38bdf8] font-mono font-medium text-[10px]">{short}:</span>
@@ -478,7 +552,10 @@ export const TelemetryTracker: React.FC = () => {
                     {latestVal !== undefined ? (Number.isInteger(latestVal) ? latestVal : latestVal.toFixed(2)) : '-'}
                   </span>
                   <button
-                    onClick={() => removeTelemetrySeries(s.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeTelemetrySeries(s.id);
+                    }}
                     className="text-[#777777] hover:text-red-400 ml-0.5 p-0.5"
                     title={`Remove ${s.label}`}
                   >
@@ -541,6 +618,20 @@ export const TelemetryTracker: React.FC = () => {
             </button>
           </div>
 
+          {/* Live Stats Toggle */}
+          <button
+            onClick={() => setShowStats(!showStats)}
+            className={`px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1 border transition-colors ${
+              showStats
+                ? 'bg-[#38bdf8]/20 border-[#38bdf8] text-[#38bdf8] font-bold'
+                : 'bg-[#1e1e1e] hover:bg-[#2e2e2e] text-[#aaaaaa] border-[#3c3c3c]'
+            }`}
+            title="Toggle live telemetry statistics (Min, Max, Avg, Span)"
+          >
+            <BarChart2 className="w-3 h-3 text-[#38bdf8]" />
+            <span>Stats</span>
+          </button>
+
           <div className="h-3.5 w-[1px] bg-[#3c3c3c]" />
 
           {/* Export CSV */}
@@ -583,6 +674,33 @@ export const TelemetryTracker: React.FC = () => {
         </div>
       </div>
 
+      {/* Live Stats Summary Bar */}
+      {showStats && chartData && chartData.seriesPaths.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 px-3 py-1 bg-[#1a1a1a] border-b border-[#2d2d2d] text-[10.5px] font-mono shrink-0 select-text overflow-x-auto">
+          <span className="text-[#666666] font-semibold text-[10px] uppercase tracking-wider flex items-center gap-1 mr-1 shrink-0">
+            <BarChart2 className="w-3 h-3 text-[#38bdf8]" />
+            {zoomRange ? 'Zoom Window' : `Last ${windowSize} pts`}:
+          </span>
+          {chartData.seriesPaths.map(({ series, currentVal, min, max, avg, span, count }) => (
+            <div
+              key={series.id}
+              className="flex items-center gap-2 px-2 py-0.5 bg-[#252526] rounded border border-[#3c3c3c]/60 shadow-sm shrink-0"
+            >
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: series.color }} />
+              <span className="font-semibold text-white truncate max-w-[110px]" title={series.label}>
+                {series.label}
+              </span>
+              <span className="text-[#555555]">|</span>
+              <span title="Latest value">Cur: <span className="text-[#38bdf8] font-bold">{currentVal !== null ? currentVal.toFixed(2) : '-'}</span></span>
+              <span title="Minimum value in window">Min: <span className="text-emerald-400">{count > 0 ? min.toFixed(2) : '-'}</span></span>
+              <span title="Maximum value in window">Max: <span className="text-rose-400">{count > 0 ? max.toFixed(2) : '-'}</span></span>
+              <span title="Average value in window">Avg: <span className="text-amber-300">{count > 0 ? avg.toFixed(2) : '-'}</span></span>
+              <span title="Value span (Max - Min)">Δ: <span className="text-purple-300">{count > 0 ? span.toFixed(2) : '-'}</span></span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Chart Canvas Area */}
       <div
         onWheel={handleWheel}
@@ -603,7 +721,24 @@ export const TelemetryTracker: React.FC = () => {
                 [Box Zoom Active]
               </span>
             )}
-            <span className="text-[#555555] hidden md:inline">| Drag horizontally to box-zoom | Double-click to reset</span>
+            <span className="text-[#555555] hidden md:inline">| Drag horizontally to box-zoom | Double-click or Esc to reset</span>
+          </div>
+        )}
+
+        {/* Floating Zoom Active Banner with Click to Resume */}
+        {zoomRange && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 px-3 py-1 bg-amber-950/90 border border-amber-500/70 rounded-full text-amber-300 text-[10.5px] font-mono shadow-xl flex items-center gap-2 backdrop-blur-sm select-none">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+            <span>Zoom Active (Live stream paused)</span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setZoomRange(null);
+              }}
+              className="ml-1 px-2 py-0.5 bg-amber-500 hover:bg-amber-400 text-black font-semibold rounded text-[10px] transition-colors"
+            >
+              Resume Live (Esc)
+            </button>
           </div>
         )}
 
@@ -792,9 +927,17 @@ export const TelemetryTracker: React.FC = () => {
                     d={path}
                     fill="none"
                     stroke={series.color}
-                    strokeWidth={isMaximized ? '2.5' : '2'}
+                    strokeWidth={
+                      focusedSeriesId === series.id
+                        ? isMaximized ? '3.5' : '3'
+                        : isMaximized ? '2.5' : '1.8'
+                    }
+                    strokeOpacity={
+                      focusedSeriesId && focusedSeriesId !== series.id ? 0.2 : 1
+                    }
                     strokeLinecap="round"
                     strokeLinejoin="round"
+                    className="transition-all duration-150"
                   />
                 ) : null
               )}

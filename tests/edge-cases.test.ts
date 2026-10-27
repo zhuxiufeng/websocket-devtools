@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { useWSStore } from '../src/store/ws-store';
 import { FrameProcessor } from '../src/core/frame-processor';
 import { parseFilterQuery, matchesFilter } from '../src/core/filter-engine';
+import { extractField } from '../src/core/field-extractor';
 import { highlightSearchText, subtreeHasMatch } from '../src/components/JsonInspector';
 import type { WSFrame } from '../src/types/websocket';
 
@@ -210,6 +211,156 @@ describe('Comprehensive Self-Test & Edge Case Audit Suite', () => {
 
     const highlighted = highlightSearchText('temperature_sensor chamber_temp', 'chamber_temp');
     expect(highlighted).not.toBe('temperature_sensor chamber_temp');
+  });
+
+  it('7. Numeric index path collision prevention: bare numeric key does not match nested child arrays', () => {
+    const gcodeFrame = {
+      jsonrpc: '2.0',
+      method: 'notify_status_update',
+      params: [
+        {
+          gcode_move: {
+            speed: 60.0,
+            homing_origin: [0.0, 0.0, 0.0, 0.0],
+            position: [53.4, 120.0, 0.0, 1.25],
+          },
+        },
+        430.1,
+      ],
+    };
+
+    // Direct access to params.1
+    expect(extractField(gcodeFrame, 'params.1')).toBe(430.1);
+    expect(extractField(gcodeFrame, 'params[1]')).toBe(430.1);
+
+    // Bare '1' must not crawl into homing_origin[1]
+    const bareOne = extractField(gcodeFrame.params[0], '1');
+    expect(bareOne).toBeUndefined();
+  });
+
+  it('8. addCustomColumn retroactively backfills carried values for pre-existing frames', () => {
+    const store = useWSStore.getState();
+
+    // Ingest 3 frames before custom column exists
+    store.addFramesBatch([
+      {
+        id: 'f-1',
+        connectionId: 'conn-1',
+        direction: 'in',
+        timestamp: 1000,
+        payload: JSON.stringify({ params: [{ print_stats: { print_duration: 330.5 } }] }),
+      },
+      {
+        id: 'f-2',
+        connectionId: 'conn-1',
+        direction: 'in',
+        timestamp: 1001,
+        payload: JSON.stringify({ params: [{ fan_feedback: { speed: 5000 } }] }),
+      },
+      {
+        id: 'f-3',
+        connectionId: 'conn-1',
+        direction: 'in',
+        timestamp: 1002,
+        payload: JSON.stringify({ params: [{ gcode_move: { speed: 60 } }] }),
+      },
+    ]);
+
+    expect(useWSStore.getState().frames).toHaveLength(3);
+
+    // Now dynamically add custom column
+    useWSStore.getState().addCustomColumn('print_stats.print_duration', 'Duration');
+
+    const updatedFrames = useWSStore.getState().frames;
+    const colId = useWSStore.getState().customColumns.find((c) => c.path === 'print_stats.print_duration')?.id;
+    expect(colId).toBeDefined();
+
+    // Frame 1 has direct value
+    // Frame 2 and 3 should have backfilled carried value = 330.5 from f-1
+    expect(updatedFrames[1].carried?.[colId!]).toBeDefined();
+    expect(updatedFrames[1].carried?.[colId!].value).toBe(330.5);
+    expect(updatedFrames[1].carried?.[colId!].fromId).toBe('f-1');
+
+    expect(updatedFrames[2].carried?.[colId!]).toBeDefined();
+    expect(updatedFrames[2].carried?.[colId!].value).toBe(330.5);
+  });
+
+  it('9. Telemetry series supports numeric strings and heartbeat carry-forward on unchanged frames', () => {
+    const store = useWSStore.getState();
+
+    // Ingest frame with numeric string "27.09"
+    store.addFramesBatch([
+      {
+        id: 'f-10',
+        connectionId: 'conn-1',
+        direction: 'in',
+        timestamp: 10000,
+        payload: JSON.stringify({ temperature: '27.09' }),
+      },
+    ]);
+
+    store.addTelemetrySeries('temperature', 'Temp');
+    const series = useWSStore.getState().telemetrySeries.find((s) => s.fieldPath === 'temperature');
+    expect(series).toBeDefined();
+    expect(series?.dataPoints).toHaveLength(1);
+    expect(series?.dataPoints[0].value).toBe(27.09);
+
+    // Ingest another frame 1500ms later without temperature (delta frame)
+    store.addFramesBatch([
+      {
+        id: 'f-11',
+        connectionId: 'conn-1',
+        direction: 'in',
+        timestamp: 11500,
+        payload: JSON.stringify({ other: 123 }),
+      },
+    ]);
+
+    const updatedSeries = useWSStore.getState().telemetrySeries.find((s) => s.fieldPath === 'temperature');
+    // Should have heartbeat carry-forward point at timestamp 11500 with value 27.09
+    expect(updatedSeries?.dataPoints).toHaveLength(2);
+    expect(updatedSeries?.dataPoints[1].time).toBe(11500);
+    expect(updatedSeries?.dataPoints[1].value).toBe(27.09);
+  });
+
+  it('10. FrameProcessor computes deltaMs per connection correctly', () => {
+    const processor = new FrameProcessor();
+    const rawFrames = [
+      {
+        id: 'f-1',
+        connectionId: 'conn-A',
+        direction: 'in' as const,
+        timestamp: 1000,
+        payload: '{}',
+      },
+      {
+        id: 'f-2',
+        connectionId: 'conn-B',
+        direction: 'in' as const,
+        timestamp: 1020,
+        payload: '{}',
+      },
+      {
+        id: 'f-3',
+        connectionId: 'conn-A',
+        direction: 'in' as const,
+        timestamp: 1050,
+        payload: '{}',
+      },
+      {
+        id: 'f-4',
+        connectionId: 'conn-B',
+        direction: 'in' as const,
+        timestamp: 1120,
+        payload: '{}',
+      },
+    ];
+
+    const processed = processor.ingestBatch(rawFrames, []);
+    expect(processed[0].deltaMs).toBeUndefined(); // First frame on conn-A
+    expect(processed[1].deltaMs).toBeUndefined(); // First frame on conn-B
+    expect(processed[2].deltaMs).toBe(50); // conn-A: 1050 - 1000 = 50ms
+    expect(processed[3].deltaMs).toBe(100); // conn-B: 1120 - 1020 = 100ms
   });
 });
 

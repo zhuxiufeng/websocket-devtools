@@ -49,6 +49,7 @@ export interface IngestContext {
   pendingRequests: Map<string, { id: string; method: string; timestamp: number }>;
   lastKnownValues: Map<string, Record<string, CarriedValue>>;
   methodStats: Map<string, MethodStat>;
+  lastConnectionTs: Map<string, number>;
   // Connection state snapshots
   connectionSnapshots: Map<
     string,
@@ -72,6 +73,7 @@ export class FrameProcessor {
       pendingRequests: new Map(),
       lastKnownValues: new Map(),
       methodStats: new Map(),
+      lastConnectionTs: new Map(),
       connectionSnapshots: new Map(),
     };
   }
@@ -83,6 +85,15 @@ export class FrameProcessor {
 
   public getMethodStats(): MethodStat[] {
     return Array.from(this.ctx.methodStats.values()).sort((a, b) => b.count - a.count);
+  }
+
+  public setLastKnown(connectionId: string, colId: string, val: CarriedValue): void {
+    let connLast = this.ctx.lastKnownValues.get(connectionId);
+    if (!connLast) {
+      connLast = {};
+      this.ctx.lastKnownValues.set(connectionId, connLast);
+    }
+    connLast[colId] = val;
   }
 
   /**
@@ -288,6 +299,11 @@ export class FrameProcessor {
         stat.lastTs = timestamp;
       }
 
+      // Inter-frame latency (delta time) calculation
+      const prevTs = this.ctx.lastConnectionTs.get(connId);
+      const deltaMs = prevTs !== undefined ? Math.max(0, timestamp - prevTs) : undefined;
+      this.ctx.lastConnectionTs.set(connId, timestamp);
+
       // Construct WSFrame
       const frame: WSFrame = {
         id,
@@ -309,6 +325,7 @@ export class FrameProcessor {
         rpcPeerId,
         rpcLatencyMs,
         statusDelta,
+        deltaMs,
       };
 
       // Carry-forward calculation for custom columns

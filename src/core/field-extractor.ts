@@ -44,6 +44,12 @@ function findDeep(obj: any, targetKeyOrSegments: string | string[], maxDepth = 1
       return obj[key];
     }
 
+    // Bare numeric index (e.g. '0', '1') has no semantic meaning across deep recursive tree traversal.
+    // Prevent diving into unrelated child arrays where it would falsely match indices like position[1].
+    if (/^\d+$/.test(key)) {
+      return undefined;
+    }
+
     // Support fuzzy subkey with spaces (e.g. matching "temperature_sensor chamber_temp" with "chamber_temp")
     if (!Array.isArray(obj)) {
       for (const k of Object.keys(obj)) {

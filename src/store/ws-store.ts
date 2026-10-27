@@ -279,23 +279,45 @@ export const useWSStore = create<WSStoreState>()(
           if (nextSeries.length > 0) {
             nextSeries = nextSeries.map((s) => {
               const newPoints = [...s.dataPoints];
+              const lastRecorded = newPoints[newPoints.length - 1];
+              let lastVal = lastRecorded ? lastRecorded.value : null;
+              let lastPointTime = lastRecorded ? lastRecorded.time : 0;
+
               for (const frame of processedFrames) {
                 const rawVal = extractFrameField(frame, s.fieldPath);
                 let valNum: number | null = null;
 
                 if (typeof rawVal === 'number') {
                   valNum = rawVal;
+                } else if (typeof rawVal === 'string' && rawVal.trim() !== '') {
+                  const parsed = parseFloat(rawVal);
+                  if (!isNaN(parsed)) valNum = parsed;
                 } else if (Array.isArray(rawVal) && s.subIndex !== undefined) {
                   const subVal = rawVal[s.subIndex];
                   if (typeof subVal === 'number') {
                     valNum = subVal;
+                  } else if (typeof subVal === 'string' && subVal.trim() !== '') {
+                    const parsed = parseFloat(subVal);
+                    if (!isNaN(parsed)) valNum = parsed;
                   }
                 }
 
                 if (valNum !== null && !isNaN(valNum)) {
+                  lastVal = valNum;
+                  lastPointTime = frame.timestamp;
                   newPoints.push({
                     time: frame.timestamp,
                     value: valNum,
+                    formattedTime: frame.timeFormatted,
+                  });
+                } else if (lastVal !== null && frame.timestamp - lastPointTime >= 1000) {
+                  // Heartbeat / Carry-forward for telemetry:
+                  // When a field is unchanged across delta frames, add a heartbeat point every 1s
+                  // to keep the time-axis rolling forward rather than freezing!
+                  lastPointTime = frame.timestamp;
+                  newPoints.push({
+                    time: frame.timestamp,
+                    value: lastVal,
                     formattedTime: frame.timeFormatted,
                   });
                 }
@@ -366,16 +388,43 @@ export const useWSStore = create<WSStoreState>()(
         );
         if (existing) return;
 
+        const newColId = `col-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        const newCol = {
+          id: newColId,
+          name: finalName,
+          path: cleanPath,
+          width: 190,
+        };
+
+        // Backfill carry-forward values for existing frames
+        const currentFrames = get().frames;
+        if (currentFrames.length > 0) {
+          const connLastMap = new Map<string, { value: any; fromId: string }>();
+          for (let i = 0; i < currentFrames.length; i++) {
+            const f = currentFrames[i];
+            const connId = f.connectionId || 'default-ws';
+            let connLast = connLastMap.get(connId);
+
+            const directVal = extractFrameField(f, cleanPath);
+            if (directVal !== undefined && directVal !== null) {
+              connLast = { value: directVal, fromId: f.id };
+              connLastMap.set(connId, connLast);
+            } else if (connLast) {
+              if (!f.carried) {
+                f.carried = {};
+              }
+              f.carried[newColId] = { ...connLast };
+            }
+          }
+
+          // Sync lastKnown back into globalFrameProcessor context for future incoming frames
+          for (const [connId, lastVal] of connLastMap.entries()) {
+            globalFrameProcessor.setLastKnown(connId, newColId, lastVal);
+          }
+        }
+
         set((state) => ({
-          customColumns: [
-            ...state.customColumns,
-            {
-              id: `col-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-              name: finalName,
-              path: cleanPath,
-              width: 190,
-            },
-          ],
+          customColumns: [...state.customColumns, newCol],
         }));
       },
 
@@ -457,21 +506,41 @@ export const useWSStore = create<WSStoreState>()(
 
         const historyFrames = frames.slice(Math.max(0, frames.length - MAX_TELEMETRY_POINTS));
         for (const s of newSeriesList) {
+          let lastVal: number | null = null;
+          let lastPointTime = 0;
           for (const f of historyFrames) {
             const val = extractFrameField(f, s.fieldPath);
             let num: number | null = null;
-            if (typeof val === 'number') num = val;
-            else if (
+            if (typeof val === 'number') {
+              num = val;
+            } else if (typeof val === 'string' && val.trim() !== '') {
+              const parsed = parseFloat(val);
+              if (!isNaN(parsed)) num = parsed;
+            } else if (
               Array.isArray(val) &&
-              s.subIndex !== undefined &&
-              typeof val[s.subIndex] === 'number'
+              s.subIndex !== undefined
             ) {
-              num = val[s.subIndex];
+              const subVal = val[s.subIndex];
+              if (typeof subVal === 'number') {
+                num = subVal;
+              } else if (typeof subVal === 'string' && subVal.trim() !== '') {
+                const parsed = parseFloat(subVal);
+                if (!isNaN(parsed)) num = parsed;
+              }
             }
             if (num !== null && !isNaN(num)) {
+              lastVal = num;
+              lastPointTime = f.timestamp;
               s.dataPoints.push({
                 time: f.timestamp,
                 value: num,
+                formattedTime: f.timeFormatted,
+              });
+            } else if (lastVal !== null && f.timestamp - lastPointTime >= 1000) {
+              lastPointTime = f.timestamp;
+              s.dataPoints.push({
+                time: f.timestamp,
+                value: lastVal,
                 formattedTime: f.timeFormatted,
               });
             }
