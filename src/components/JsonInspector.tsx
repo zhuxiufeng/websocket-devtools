@@ -34,6 +34,15 @@ interface ContextMenuState {
   value: any;
 }
 
+export function isNumericValue(val: any): boolean {
+  if (typeof val === 'number') return !isNaN(val);
+  if (typeof val === 'string' && val.trim() !== '') {
+    const num = Number(val);
+    return !isNaN(num) && isFinite(num);
+  }
+  return false;
+}
+
 export function highlightSearchText(text: string, query: string): React.ReactNode {
   const trimmed = query.trim();
   if (!trimmed || !text) return text;
@@ -331,26 +340,28 @@ export const JsonInspector: React.FC = () => {
         <div className="flex items-center gap-1.5 shrink-0">
           <button
             onClick={() => setFollowLatest(!followLatest)}
-            className={`px-2 py-0.5 rounded text-[10px] font-medium border flex items-center gap-1 transition-colors ${
+            className={`px-2 py-0.5 rounded text-[10px] font-medium border flex items-center gap-1.5 transition-colors ${
               followLatest
-                ? 'bg-amber-950/80 text-amber-300 border-amber-700 hover:bg-amber-900/80'
-                : 'bg-[#1e1e1e] text-emerald-400 border-[#3c3c3c] hover:bg-[#2d2d2d]'
+                ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/60 hover:bg-emerald-900/80 shadow-sm'
+                : 'bg-amber-950/80 text-amber-300 border-amber-600/60 hover:bg-amber-900/80 shadow-sm'
             }`}
             title={
               followLatest
-                ? 'Currently auto-following latest incoming frame (Click to freeze)'
-                : 'Locked/Frozen on this frame (Click to follow latest frame live)'
+                ? 'Currently auto-following latest incoming frame (Click to freeze on current frame)'
+                : 'Locked/Frozen on this frame (Click to resume live tail)'
             }
           >
             {followLatest ? (
               <>
-                <Radio className="w-2.5 h-2.5 animate-pulse text-amber-400" />
-                <span>Live Tail</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping inline-block" />
+                <span className="font-semibold text-emerald-300">Live 实时跟随</span>
               </>
             ) : (
               <>
-                <Lock className="w-2.5 h-2.5 text-emerald-400" />
-                <span>Frozen</span>
+                <Lock className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                <span className="font-semibold text-amber-300">
+                  锁定检视 #{selectedFrame.seq ?? selectedFrame.id.replace('frame-', '')}
+                </span>
               </>
             )}
           </button>
@@ -736,20 +747,22 @@ export const JsonInspector: React.FC = () => {
             <span>📌 Show as Column</span>
           </button>
 
-          <button
-            onClick={() => {
-              const { cleanPath, displayName } = getDisambiguatedPathAndName(
-                contextMenu.path || contextMenu.keyName,
-                contextMenu.keyName
-              );
-              addTelemetrySeries(cleanPath, displayName);
-              setContextMenu((prev) => ({ ...prev, visible: false }));
-            }}
-            className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
-          >
-            <TrendingUp className="w-3.5 h-3.5 text-[#f59e0b]" />
-            <span>📊 Track on Graph</span>
-          </button>
+          {isNumericValue(contextMenu.value) && (
+            <button
+              onClick={() => {
+                const { cleanPath, displayName } = getDisambiguatedPathAndName(
+                  contextMenu.path || contextMenu.keyName,
+                  contextMenu.keyName
+                );
+                addTelemetrySeries(cleanPath, displayName);
+                setContextMenu((prev) => ({ ...prev, visible: false }));
+              }}
+              className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
+            >
+              <TrendingUp className="w-3.5 h-3.5 text-[#f59e0b]" />
+              <span>📊 Track on Graph</span>
+            </button>
+          )}
 
           <div className="my-1 border-t border-[#3c3c3c]" />
 
@@ -910,24 +923,11 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = React.memo(({
                   const { cleanPath, displayName } = getDisambiguatedPathAndName(thisPath, keyName);
                   onShowAsColumn(cleanPath, displayName);
                 }}
-                className="px-1 py-0.5 bg-[#1e293b] hover:bg-[#0284c7] text-[#38bdf8] hover:text-white rounded text-[10px] flex items-center gap-0.5 transition-colors"
+                className="px-1.5 py-0.5 bg-[#1e293b] hover:bg-[#0284c7] text-[#38bdf8] hover:text-white rounded text-[10px] flex items-center gap-0.5 transition-colors font-medium"
                 title="Show as Column in table"
               >
                 <Columns className="w-2.5 h-2.5" />
                 <span>Col</span>
-              </button>
-
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const { cleanPath, displayName } = getDisambiguatedPathAndName(thisPath, keyName);
-                  onTrackOnGraph(cleanPath, displayName);
-                }}
-                className="px-1 py-0.5 bg-[#451a03] hover:bg-[#d97706] text-[#fbbf24] hover:text-white rounded text-[10px] flex items-center gap-0.5 transition-colors"
-                title="Track on Telemetry Graph"
-              >
-                <TrendingUp className="w-2.5 h-2.5" />
-                <span>Track</span>
               </button>
             </div>
           )}
@@ -957,18 +957,19 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = React.memo(({
     );
   }
 
-  // Primitive value rendering
-  let valueColor = 'text-[#ce9178]'; // strings
+  // Primitive value rendering with refined syntax colors
+  const isNumeric = isNumericValue(value);
+  let valueColor = 'text-[#38bdf8]'; // strings in clear sky blue
   let displayValue = String(value);
 
   if (typeof value === 'number') {
-    valueColor = 'text-[#b5cea8]';
+    valueColor = 'text-[#4ade80] font-semibold'; // numbers in bright emerald
     displayValue = Number.isInteger(value) ? String(value) : value.toFixed(3);
   } else if (typeof value === 'boolean') {
-    valueColor = 'text-[#569cd6]';
+    valueColor = 'text-[#fbbf24] font-medium'; // booleans in warm amber
     displayValue = value ? 'true' : 'false';
   } else if (value === null) {
-    valueColor = 'text-[#569cd6]';
+    valueColor = 'text-[#888888] italic';
     displayValue = 'null';
   } else if (typeof value === 'string') {
     displayValue = `"${value}"`;
@@ -995,25 +996,27 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = React.memo(({
             const { cleanPath, displayName } = getDisambiguatedPathAndName(thisPath, keyName);
             onShowAsColumn(cleanPath, displayName);
           }}
-          className="px-1 py-0.5 bg-[#1e293b] hover:bg-[#0284c7] text-[#38bdf8] hover:text-white rounded text-[10px] flex items-center gap-0.5 transition-colors"
+          className="px-1.5 py-0.5 bg-[#1e293b] hover:bg-[#0284c7] text-[#38bdf8] hover:text-white rounded text-[10px] flex items-center gap-0.5 transition-colors font-medium"
           title="Show as Column in table"
         >
           <Columns className="w-2.5 h-2.5" />
           <span>Col</span>
         </button>
 
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            const { cleanPath, displayName } = getDisambiguatedPathAndName(thisPath, keyName);
-            onTrackOnGraph(cleanPath, displayName);
-          }}
-          className="px-1 py-0.5 bg-[#451a03] hover:bg-[#d97706] text-[#fbbf24] hover:text-white rounded text-[10px] flex items-center gap-0.5 transition-colors"
-          title="Track on Telemetry Graph"
-        >
-          <TrendingUp className="w-2.5 h-2.5" />
-          <span>Track</span>
-        </button>
+        {isNumeric && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              const { cleanPath, displayName } = getDisambiguatedPathAndName(thisPath, keyName);
+              onTrackOnGraph(cleanPath, displayName);
+            }}
+            className="px-1.5 py-0.5 bg-[#451a03] hover:bg-[#d97706] text-[#fbbf24] hover:text-white rounded text-[10px] flex items-center gap-0.5 transition-colors font-medium shadow-sm"
+            title="Track numeric value on Telemetry Graph"
+          >
+            <TrendingUp className="w-2.5 h-2.5" />
+            <span>Track</span>
+          </button>
+        )}
       </div>
     </div>
   );

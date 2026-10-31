@@ -14,6 +14,8 @@ import {
   Plus,
   RotateCcw,
   BarChart2,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 
 const extractExplicitUnit = (label: string): string => {
@@ -34,6 +36,9 @@ export const TelemetryTracker: React.FC = () => {
   const [isMaximized, setIsMaximized] = useState<boolean>(false);
   const [scaleMode, setScaleMode] = useState<'autofit' | 'shared'>('autofit');
   const [showStats, setShowStats] = useState<boolean>(false);
+  const [trackerHeight, setTrackerHeight] = useState<number>(240);
+  const [isResizingVertical, setIsResizingVertical] = useState<boolean>(false);
+  const [isGuideExpanded, setIsGuideExpanded] = useState<boolean>(false);
   const [zoomRange, setZoomRange] = useState<{ minTime: number; maxTime: number } | null>(null);
   const [dragSelect, setDragSelect] = useState<{ startX: number; currentX: number } | null>(null);
   const [focusedSeriesId, setFocusedSeriesId] = useState<string | null>(null);
@@ -46,6 +51,24 @@ export const TelemetryTracker: React.FC = () => {
   } | null>(null);
 
   const svgRef = useRef<SVGSVGElement>(null);
+
+  // Listen for vertical resizing drag
+  useEffect(() => {
+    if (!isResizingVertical) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      const newHeight = Math.max(130, Math.min(window.innerHeight - 180, window.innerHeight - e.clientY));
+      setTrackerHeight(newHeight);
+    };
+    const handleMouseUp = () => {
+      setIsResizingVertical(false);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizingVertical]);
 
   // Listen for Escape key to reset Box Zoom
   useEffect(() => {
@@ -139,7 +162,7 @@ export const TelemetryTracker: React.FC = () => {
     }
 
     const width = 800;
-    const height = isMaximized ? 420 : 150;
+    const height = isMaximized ? 420 : Math.max(120, trackerHeight - (showStats ? 60 : 35));
     const padding = {
       top: 18,
       bottom: 24,
@@ -485,41 +508,93 @@ export const TelemetryTracker: React.FC = () => {
   };
 
   if (telemetrySeries.length === 0) {
-    return (
-      <div className="h-44 bg-[#1e1e1e] border-t border-[#3c3c3c] flex flex-col items-center justify-center text-xs text-[#858585] p-3 select-none shrink-0">
-        <Activity className="w-6 h-6 mb-2 text-[#555555]" />
-        <span className="font-medium text-[#aaaaaa]">No Active Telemetry Tracks</span>
-        <span className="text-[11px] mt-1 text-[#777777] text-center max-w-sm">
-          Track any coordinate, temperature, or numeric field in real time. Right-click or click track on fields in JSON Inspector.
-        </span>
-
-        {customColumns.length > 0 && (
-          <div className="mt-2.5 flex items-center gap-1.5 flex-wrap justify-center">
-            <span className="text-[10px] text-[#666666]">Quick track from custom columns:</span>
-            {customColumns.slice(0, 4).map((col) => (
-              <button
-                key={col.id}
-                onClick={() => addTelemetrySeries(col.path, col.name)}
-                className="px-2 py-0.5 bg-[#252526] hover:bg-[#333333] text-[#38bdf8] border border-[#38bdf8]/40 rounded text-[10px] transition-colors flex items-center gap-1"
-              >
-                <Plus className="w-2.5 h-2.5" />
-                {col.name}
-              </button>
-            ))}
+    if (!isGuideExpanded) {
+      return (
+        <div
+          onClick={() => setIsGuideExpanded(true)}
+          className="h-7 px-3 bg-[#252526] hover:bg-[#2d2d2e] border-t border-[#3c3c3c] flex items-center justify-between text-xs text-[#858585] select-none shrink-0 cursor-pointer transition-colors"
+          title="Click to expand Visual Tracker quick guide"
+        >
+          <div className="flex items-center gap-1.5 truncate">
+            <Activity className="w-3.5 h-3.5 text-[#38bdf8]" />
+            <span className="font-semibold text-[#aaaaaa] text-[11px]">Visual Tracker</span>
+            <span className="text-[#666666] text-[10.5px] truncate">
+              (0 metrics tracked - click 'Track' on numeric JSON fields to graph)
+            </span>
           </div>
-        )}
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {customColumns.length > 0 && (
+              <span className="text-[10px] text-[#38bdf8] bg-[#1e293b] px-1.5 py-0.5 rounded border border-[#38bdf8]/30 hidden sm:inline">
+                {customColumns.length} custom col available
+              </span>
+            )}
+            <span className="text-[#888888] hover:text-white text-[10px] flex items-center gap-0.5">
+              <span>Quick Start</span>
+              <ChevronUp className="w-3 h-3 text-[#aaaaaa]" />
+            </span>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="bg-[#1e1e1e] border-t border-[#3c3c3c] flex flex-col p-3 select-none shrink-0 relative transition-all">
+        <button
+          onClick={() => setIsGuideExpanded(false)}
+          className="absolute right-2 top-2 p-1 text-[#888888] hover:text-white rounded"
+          title="Collapse guide"
+        >
+          <ChevronDown className="w-3.5 h-3.5" />
+        </button>
+
+        <div className="flex flex-col items-center justify-center text-center py-1">
+          <Activity className="w-5 h-5 mb-1.5 text-[#38bdf8]" />
+          <span className="font-semibold text-[#cccccc] text-xs">Visual Tracker Ready</span>
+          <span className="text-[11px] mt-0.5 text-[#888888] max-w-sm">
+            Track any coordinate, temperature, or numeric field in real time. Click <span className="text-[#fbbf24] font-medium">Track</span> on numeric fields in the JSON Inspector above.
+          </span>
+
+          {customColumns.length > 0 && (
+            <div className="mt-2.5 flex items-center gap-1.5 flex-wrap justify-center">
+              <span className="text-[10.5px] text-[#777777]">Quick track from custom columns:</span>
+              {customColumns.slice(0, 4).map((col) => (
+                <button
+                  key={col.id}
+                  onClick={() => addTelemetrySeries(col.path, col.name)}
+                  className="px-2 py-0.5 bg-[#252526] hover:bg-[#333333] text-[#38bdf8] border border-[#38bdf8]/40 rounded text-[10px] transition-colors flex items-center gap-1 font-mono"
+                >
+                  <Plus className="w-2.5 h-2.5" />
+                  {col.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
   const chartContent = (
     <div
+      style={!isMaximized ? { height: `${trackerHeight}px` } : undefined}
       className={`${
         isMaximized
           ? 'fixed inset-4 z-50 bg-[#1e1e1e] border border-[#555555] rounded-lg shadow-2xl flex flex-col overflow-hidden'
-          : 'h-60 bg-[#1e1e1e] border-t border-[#3c3c3c] flex flex-col select-none overflow-hidden shrink-0'
+          : 'bg-[#1e1e1e] border-t border-[#3c3c3c] flex flex-col select-none overflow-hidden shrink-0 relative'
       }`}
     >
+      {/* Vertical Drag Resize Handle */}
+      {!isMaximized && (
+        <div
+          onMouseDown={(e) => {
+            e.preventDefault();
+            setIsResizingVertical(true);
+          }}
+          className="absolute left-0 right-0 top-0 h-1.5 cursor-row-resize hover:bg-[#38bdf8]/60 z-30 transition-colors"
+          title="Drag to resize chart height"
+        />
+      )}
       {/* Header with Tools */}
       <div className="h-8 px-3 bg-[#252526] border-b border-[#3c3c3c] flex items-center justify-between text-xs shrink-0 gap-2">
         {/* Left: Active Metrics Tags */}

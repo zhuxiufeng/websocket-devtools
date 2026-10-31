@@ -81,7 +81,7 @@ const FrameRow = React.memo<FrameRowProps>(({
       </div>
 
       {/* Time */}
-      <div className="w-24 px-2 text-[#999999] shrink-0 truncate border-r border-[#2d2d2d]/50">
+      <div className="w-28 px-2 text-[#999999] shrink-0 truncate border-r border-[#2d2d2d]/50 font-mono">
         {frame.timeFormatted}
       </div>
 
@@ -121,29 +121,30 @@ const FrameRow = React.memo<FrameRowProps>(({
       </div>
 
       {/* Method / RPC pairing */}
-      <div className="w-48 px-2 shrink-0 border-r border-[#2d2d2d]/50 flex items-center justify-between overflow-hidden">
-        <span className="truncate font-semibold text-[10.5px]">
+      <div className="w-56 px-2 shrink-0 border-r border-[#2d2d2d]/50 flex items-center justify-between overflow-hidden">
+        <span className="truncate font-semibold text-[10.5px] flex items-center gap-1 min-w-0">
           {frame.rpcKind === 'response' ? (
-            <span className="text-emerald-400 flex items-center gap-1" title="JSON-RPC Response">
-              <span>↩</span>
+            <span className="text-emerald-400 flex items-center gap-1 truncate" title="JSON-RPC Response">
+              <span className="px-1 py-0.2 bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 rounded text-[8.5px] font-mono shrink-0">RESP</span>
               <span className="truncate">{frame.method}</span>
             </span>
           ) : frame.rpcKind === 'request' ? (
-            <span className="text-cyan-400 flex items-center gap-1" title="JSON-RPC Request">
-              <span>→</span>
+            <span className="text-cyan-400 flex items-center gap-1 truncate" title="JSON-RPC Request">
+              <span className="px-1 py-0.2 bg-cyan-950/80 border border-cyan-500/40 text-cyan-400 rounded text-[8.5px] font-mono shrink-0">REQ</span>
               <span className="truncate">{frame.method}</span>
             </span>
           ) : frame.rpcKind === 'error' ? (
-            <span className="text-rose-400 flex items-center gap-1" title="JSON-RPC Error">
-              <span>✕</span>
+            <span className="text-rose-400 flex items-center gap-1 truncate" title="JSON-RPC Error">
+              <span className="px-1 py-0.2 bg-rose-950/80 border border-rose-500/40 text-rose-400 rounded text-[8.5px] font-mono shrink-0">ERR</span>
               <span className="truncate">{frame.method}</span>
             </span>
           ) : frame.rpcKind === 'notification' ? (
-            <span className="text-purple-300" title="JSON-RPC Notification">
-              {frame.method}
+            <span className="text-purple-300 flex items-center gap-1 truncate" title="JSON-RPC Notification">
+              <span className="px-1 py-0.2 bg-purple-950/80 border border-purple-500/40 text-purple-300 rounded text-[8.5px] font-mono shrink-0">NTF</span>
+              <span className="truncate">{frame.method}</span>
             </span>
           ) : (
-            <span className="text-[#777777]">{frame.method || '-'}</span>
+            <span className="text-[#777777] truncate">{frame.method || '-'}</span>
           )}
         </span>
 
@@ -367,7 +368,7 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
   };
 
   const totalMinWidth = useMemo(() => {
-    const baseColsWidth = 56 + 48 + 96 + 64 + 64 + 192; // w-14 + w-12 + w-24 + w-16(Δt) + w-16(Len) + w-48 = 520px
+    const baseColsWidth = 56 + 48 + 112 + 64 + 64 + 224; // w-14 (56) + w-12 (48) + w-28 (112) + w-16(Δt 64) + w-16(Len 64) + w-56(Method 224) = 568px
     const customColsWidth = customColumns.reduce((sum, col) => sum + (col.width || 190), 0);
     let maxPayloadLen = 0;
     for (let i = 0; i < filteredFrames.length; i++) {
@@ -409,10 +410,10 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
         >
           <div className="w-14 px-2 text-right border-r border-[#3c3c3c]/60 shrink-0">#</div>
           <div className="w-12 px-1 text-center border-r border-[#3c3c3c]/60 shrink-0">Dir</div>
-          <div className="w-24 px-2 border-r border-[#3c3c3c]/60 shrink-0">Time</div>
+          <div className="w-28 px-2 border-r border-[#3c3c3c]/60 shrink-0">Time</div>
           <div className="w-16 px-1.5 text-right border-r border-[#3c3c3c]/60 shrink-0" title="Inter-frame interval (Δt) / Frequency">Δt</div>
           <div className="w-16 px-2 text-right border-r border-[#3c3c3c]/60 shrink-0">Len</div>
-          <div className="w-48 px-2 border-r border-[#3c3c3c]/60 shrink-0">Method / RPC</div>
+          <div className="w-56 px-2 border-r border-[#3c3c3c]/60 shrink-0">Method / RPC</div>
 
           {/* Dynamic Custom Columns */}
           {customColumns.map((col) => {
