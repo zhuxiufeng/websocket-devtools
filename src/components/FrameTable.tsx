@@ -385,7 +385,7 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
     if (headerRef.current) {
       headerRef.current.scrollLeft = el.scrollLeft;
     }
-    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 35;
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     shouldAutoScrollRef.current = isAtBottom;
 
     if (!isAtBottom) {
@@ -394,12 +394,14 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
       }
     } else {
       if (isAutoScrollPaused) {
+        setIsAutoScrollPaused(false);
         resetUnseenCount();
       }
     }
   };
 
   const scrollToBottom = () => {
+    setIsAutoScrollPaused(false);
     resetUnseenCount();
     shouldAutoScrollRef.current = true;
     if (filteredFrames.length > 0) {

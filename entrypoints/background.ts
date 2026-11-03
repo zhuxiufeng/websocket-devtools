@@ -95,6 +95,15 @@ export default defineBackground(() => {
     if (port.name === 'ws-analyzer-bridge') {
       let registeredTabId: number | null = null;
 
+      // Keepalive ping prevents Service Worker from sleeping while DevTools panel is open
+      const keepAliveTimer = setInterval(() => {
+        try {
+          port.postMessage({ type: 'PING' });
+        } catch {
+          clearInterval(keepAliveTimer);
+        }
+      }, 25000);
+
       port.onMessage.addListener((msg) => {
         if (msg.type === 'ATTACH' && typeof msg.tabId === 'number') {
           const tabId = msg.tabId;
@@ -141,6 +150,7 @@ export default defineBackground(() => {
       });
 
       port.onDisconnect.addListener(() => {
+        clearInterval(keepAliveTimer);
         if (registeredTabId !== null) {
           const panels = panelPortsByTab.get(registeredTabId);
           if (panels) {

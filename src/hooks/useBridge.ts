@@ -40,33 +40,28 @@ export function useBridge() {
   const mockRef = useRef<MockStreamGenerator | null>(null);
   const queueRef = useRef<any[]>([]);
   const timerRef = useRef<number | null>(null);
-  const isRafRef = useRef<boolean>(false);
   const lastFlushTsRef = useRef<number>(0);
 
   const cancelPendingTimer = () => {
     if (timerRef.current !== null) {
-      if (isRafRef.current && typeof cancelAnimationFrame !== 'undefined') {
-        cancelAnimationFrame(timerRef.current);
-      } else if (typeof clearTimeout !== 'undefined') {
-        clearTimeout(timerRef.current);
-      }
+      clearTimeout(timerRef.current);
       timerRef.current = null;
     }
   };
 
-  // Coalesce high-frequency incoming frames into adaptive rAF / throttled batches
-  // Reduces GC pressure and Zustand dispatch frequency on large 100k~1M buffers
+  // Coalesce high-frequency incoming frames into smooth throttled batches
+  // Always uses setTimeout instead of requestAnimationFrame so that background/unfocused
+  // DevTools panel continues smooth stream ingestion without freezing until mouse interaction!
   const enqueueFrames = (frames: any[]) => {
     queueRef.current.push(...frames);
     if (timerRef.current === null) {
       const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
       const elapsed = now - lastFlushTsRef.current;
-      // Minimum throttle interval during burst: 40ms (~25Hz) to prevent GC churn on huge buffers
-      const delay = elapsed < 40 ? 40 - elapsed : 0;
+      // 30ms (~33Hz) target throttle interval provides silky continuous updates without GC jitter
+      const delay = Math.max(0, 30 - elapsed);
 
       const flush = () => {
         timerRef.current = null;
-        isRafRef.current = false;
         lastFlushTsRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now();
         if (queueRef.current.length > 0) {
           const batch = queueRef.current;
@@ -75,15 +70,7 @@ export function useBridge() {
         }
       };
 
-      if (delay > 0 && typeof window !== 'undefined' && window.setTimeout) {
-        isRafRef.current = false;
-        timerRef.current = window.setTimeout(flush, delay) as unknown as number;
-      } else if (typeof requestAnimationFrame !== 'undefined') {
-        isRafRef.current = true;
-        timerRef.current = requestAnimationFrame(flush);
-      } else {
-        flush();
-      }
+      timerRef.current = window.setTimeout(flush, delay) as unknown as number;
     }
   };
 
@@ -122,27 +109,55 @@ export function useBridge() {
       return;
     }
 
-    // Connect to background service worker
-    const port = chrome.runtime.connect({ name: 'ws-analyzer-bridge' });
-    globalDevToolsPort = port;
+    let isMounted = true;
+    let activePort: chrome.runtime.Port | null = null;
+    let reconnectTimer: any = null;
 
-    port.postMessage({
-      type: 'ATTACH',
-      tabId: chrome.devtools.inspectedWindow.tabId,
-    });
+    const connectBridge = () => {
+      if (!isMounted) return;
+      try {
+        const port = chrome.runtime.connect({ name: 'ws-analyzer-bridge' });
+        activePort = port;
+        globalDevToolsPort = port;
 
-    port.onMessage.addListener((msg) => {
-      if (msg.type === 'FRAMES_BATCH' && Array.isArray(msg.frames)) {
-        enqueueFrames(msg.frames);
+        port.postMessage({
+          type: 'ATTACH',
+          tabId: chrome.devtools.inspectedWindow.tabId,
+        });
+
+        port.onMessage.addListener((msg) => {
+          if (msg.type === 'PING') return;
+          if (msg.type === 'FRAMES_BATCH' && Array.isArray(msg.frames)) {
+            enqueueFrames(msg.frames);
+          }
+        });
+
+        port.onDisconnect.addListener(() => {
+          activePort = null;
+          globalDevToolsPort = null;
+          if (isMounted) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = setTimeout(connectBridge, 500);
+          }
+        });
+      } catch {
+        if (isMounted) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = setTimeout(connectBridge, 1000);
+        }
       }
-    });
+    };
+
+    connectBridge();
 
     return () => {
-      try {
-        port.postMessage({ type: 'DETACH' });
-        port.disconnect();
-      } catch {
-        // Ignore disconnect error
+      isMounted = false;
+      clearTimeout(reconnectTimer);
+      if (activePort) {
+        try {
+          activePort.postMessage({ type: 'DETACH' });
+          activePort.disconnect();
+        } catch {}
       }
       globalDevToolsPort = null;
       cancelPendingTimer();
