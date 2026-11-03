@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useWSStore } from '../store/ws-store';
 import {
   Play,
@@ -23,10 +23,17 @@ import {
   Copy,
   Check,
   ChevronDown,
+  Sliders,
 } from 'lucide-react';
-import { downloadTraceFile, exportColumnsCsv, downloadCsvFile } from '../core/trace-io';
+import {
+  downloadTraceFile,
+  exportColumnsCsv,
+  exportSelectedColumnsCsv,
+  downloadCsvFile,
+} from '../core/trace-io';
 import { matchesFilter } from '../core/filter-engine';
 import { MethodStatsModal } from './MethodStatsModal';
+import { ExportColumnsModal } from './ExportColumnsModal';
 
 interface ToolbarProps {
   showTelemetry: boolean;
@@ -56,6 +63,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
   const maxFrames = useWSStore((s) => s.maxFrames);
   const setMaxFrames = useWSStore((s) => s.setMaxFrames);
   const importTraceData = useWSStore((s) => s.importTraceData);
+  const frames = useWSStore((s) => s.frames);
+  const filterCriteria = useWSStore((s) => s.filterCriteria);
+  const customColumns = useWSStore((s) => s.customColumns);
 
   const [columnModalOpen, setColumnModalOpen] = useState(false);
   const [colPathInput, setColPathInput] = useState('');
@@ -70,7 +80,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
   const [showSavePresetInput, setShowSavePresetInput] = useState(false);
   const [statsModalOpen, setStatsModalOpen] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
+
+  const filteredFrames = useMemo(() => {
+    if (!filterCriteria.rawQuery.trim()) return frames;
+    return frames.filter((f) => matchesFilter(f, filterCriteria));
+  }, [frames, filterCriteria]);
 
   // Debounced input state for typing smoothness on large buffers
   const [localQuery, setLocalQuery] = useState(filterQuery);
@@ -145,6 +161,23 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
       enableCarryForward: s.enableCarryForward,
     });
     const prefix = onlyFiltered ? 'ws-columns-filtered' : 'ws-columns-all';
+    downloadCsvFile(csv, `${prefix}-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`);
+  };
+
+  const handleExportTelemetryCsv = (onlyFiltered: boolean) => {
+    const target = onlyFiltered && filterCriteria.rawQuery.trim() ? filteredFrames : frames;
+    if (target.length === 0) return;
+
+    const csv = exportSelectedColumnsCsv(target, customColumns, {
+      includeSeq: true,
+      includeTime: true,
+      includeTimestamp: true,
+      includeDeltaMs: false,
+      includeDirection: false,
+      includeMethod: false,
+      enableCarryForward,
+    });
+    const prefix = onlyFiltered ? 'ws-telemetry-filtered' : 'ws-telemetry-all';
     downloadCsvFile(csv, `${prefix}-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`);
   };
 
@@ -267,20 +300,40 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
                     Export Column Data (CSV / Excel)
                   </div>
 
+                  {/* 1-click Telemetry + Timestamps */}
                   <button
                     onClick={() => {
-                      handleExportCsv(true);
+                      handleExportTelemetryCsv(Boolean(filterCriteria.rawQuery.trim()));
                       setShowExportMenu(false);
                     }}
                     className="w-full px-3 py-1.5 hover:bg-[#333333] text-left flex items-center justify-between text-[#cccccc] hover:text-white transition-colors"
                   >
                     <span className="flex items-center gap-2">
                       <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span>Columns as CSV (Filtered View)</span>
+                      <span>
+                        Telemetry + Timestamps{' '}
+                        {filterCriteria.rawQuery.trim() ? '(Filtered)' : ''}
+                      </span>
                     </span>
-                    <span className="text-[10px] text-[#888888]">.csv</span>
+                    <span className="text-[10px] text-emerald-400 font-semibold">.csv</span>
                   </button>
 
+                  {/* Custom Multi-Column Selector Modal */}
+                  <button
+                    onClick={() => {
+                      setExportModalOpen(true);
+                      setShowExportMenu(false);
+                    }}
+                    className="w-full px-3 py-1.5 hover:bg-[#333333] text-left flex items-center justify-between text-[#cccccc] hover:text-white transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Sliders className="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
+                      <span>Select Columns to Export...</span>
+                    </span>
+                    <span className="text-[10px] text-[#38bdf8]">Custom</span>
+                  </button>
+
+                  {/* All Columns as CSV */}
                   <button
                     onClick={() => {
                       handleExportCsv(false);
@@ -289,8 +342,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
                     className="w-full px-3 py-1.5 hover:bg-[#333333] text-left flex items-center justify-between text-[#cccccc] hover:text-white transition-colors"
                   >
                     <span className="flex items-center gap-2">
-                      <Table className="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
-                      <span>Columns as CSV (All Frames)</span>
+                      <Table className="w-3.5 h-3.5 text-[#888888] shrink-0" />
+                      <span>All Table Columns (Full Data)</span>
                     </span>
                     <span className="text-[10px] text-[#888888]">.csv</span>
                   </button>
@@ -795,6 +848,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
 
       {/* Method Statistics Modal */}
       <MethodStatsModal isOpen={statsModalOpen} onClose={() => setStatsModalOpen(false)} />
+
+      {/* Multi-Column Export Selector Modal */}
+      <ExportColumnsModal
+        isOpen={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        filteredFrames={filteredFrames}
+        allFrames={frames}
+        customColumns={customColumns}
+        defaultCarryForward={enableCarryForward}
+        isFilterActive={Boolean(filterCriteria.rawQuery.trim())}
+      />
     </div>
   );
 };

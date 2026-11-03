@@ -3,6 +3,7 @@ import {
   escapeCsvCell,
   exportColumnsCsv,
   exportSingleColumnCsv,
+  exportSelectedColumnsCsv,
 } from '../src/core/trace-io';
 import type { WSFrame, CustomColumn } from '../src/types/websocket';
 
@@ -136,7 +137,7 @@ describe('CSV Column Data Export Suite', () => {
     expect(linesNo[2].endsWith(',')).toBe(true);
   });
 
-  it('4. Exports a single column to CSV with Seq and Time', () => {
+  it('4. Exports a single column to CSV with Seq, formatted Time, and raw Timestamp', () => {
     const col = { id: 'col-temp', path: 'params[0].temp', name: 'Nozzle Temp' };
     const frames: WSFrame[] = [
       {
@@ -144,7 +145,7 @@ describe('CSV Column Data Export Suite', () => {
         seq: 1,
         connectionId: 'c1',
         direction: 'in',
-        timestamp: 100,
+        timestamp: 1680000000100,
         timeFormatted: '12:00:00.100',
         length: 20,
         payload: '{"params":[{"temp":200}]}',
@@ -156,7 +157,7 @@ describe('CSV Column Data Export Suite', () => {
         seq: 2,
         connectionId: 'c1',
         direction: 'in',
-        timestamp: 200,
+        timestamp: 1680000000200,
         timeFormatted: '12:00:00.200',
         length: 20,
         payload: '{"params":[{"temp":205}]}',
@@ -167,9 +168,9 @@ describe('CSV Column Data Export Suite', () => {
 
     const csv = exportSingleColumnCsv(frames, col);
     const lines = csv.split('\r\n');
-    expect(lines[0]).toBe('Seq,Time,Nozzle Temp');
-    expect(lines[1]).toBe('1,12:00:00.100,200');
-    expect(lines[2]).toBe('2,12:00:00.200,205');
+    expect(lines[0]).toBe('Seq,Time,Timestamp_ms,Nozzle Temp');
+    expect(lines[1]).toBe('1,12:00:00.100,1680000000100,200');
+    expect(lines[2]).toBe('2,12:00:00.200,1680000000200,205');
   });
 
   it('5. Correctly handles Unicode and Chinese characters without corrupting formatting', () => {
@@ -194,5 +195,61 @@ describe('CSV Column Data Export Suite', () => {
     const csv = exportColumnsCsv(frames, customCols);
     expect(csv).toContain('模型名称 (Model)');
     expect(csv).toContain('立方体_测试_#1');
+  });
+
+  it('6. Flexibly exports multiple selected columns with formatted Time and raw Epoch Timestamp', () => {
+    const customCols: CustomColumn[] = [
+      { id: 'col-hotend', path: 'params[0].extruder.temperature', name: 'Extruder Temp' },
+      { id: 'col-bed', path: 'params[0].heater_bed.temperature', name: 'Bed Temp' },
+      { id: 'col-pos', path: 'params[0].toolhead.position[0]', name: 'X Pos' },
+    ];
+
+    const frames: WSFrame[] = [
+      {
+        id: 'f-1',
+        seq: 1,
+        connectionId: 'c1',
+        direction: 'in',
+        timestamp: 1680000000000,
+        timeFormatted: '12:00:00.000',
+        length: 100,
+        payload: '{"params":[{"extruder":{"temperature":210.0},"heater_bed":{"temperature":60.0},"toolhead":{"position":[125.0]}}]}',
+        jsonPayload: {
+          params: [{ extruder: { temperature: 210.0 }, heater_bed: { temperature: 60.0 }, toolhead: { position: [125.0] } }],
+        },
+        isJson: true,
+      },
+      {
+        id: 'f-2',
+        seq: 2,
+        connectionId: 'c1',
+        direction: 'in',
+        timestamp: 1680000000050,
+        timeFormatted: '12:00:00.050',
+        length: 100,
+        payload: '{"params":[{"extruder":{"temperature":210.2},"heater_bed":{"temperature":60.1},"toolhead":{"position":[125.5]}}]}',
+        jsonPayload: {
+          params: [{ extruder: { temperature: 210.2 }, heater_bed: { temperature: 60.1 }, toolhead: { position: [125.5] } }],
+        },
+        isJson: true,
+      },
+    ];
+
+    // Export only: Time, Timestamp, and 2 custom columns (Extruder Temp & Bed Temp), excluding X Pos and Seq
+    const csv = exportSelectedColumnsCsv(frames, customCols, {
+      includeSeq: false,
+      includeTime: true,
+      includeTimestamp: true,
+      selectedColumnIds: ['col-hotend', 'col-bed'],
+    });
+
+    const lines = csv.split('\r\n');
+    expect(lines[0]).toBe('Time,Timestamp_ms,Extruder Temp,Bed Temp');
+    expect(lines[1]).toBe('12:00:00.000,1680000000000,210,60');
+    expect(lines[2]).toBe('12:00:00.050,1680000000050,210.2,60.1');
+
+    // Make sure X Pos was excluded
+    expect(lines[0]).not.toContain('X Pos');
+    expect(lines[0]).not.toContain('Seq');
   });
 });

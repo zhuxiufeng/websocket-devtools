@@ -16,6 +16,21 @@ export interface CsvExportOptions {
   includePayload?: boolean;
 }
 
+export interface ColumnExportConfig {
+  includeSeq?: boolean;
+  includeTime?: boolean; // Formatted time: HH:mm:ss.SSS
+  includeTimestamp?: boolean; // Unix timestamp in ms
+  includeDeltaMs?: boolean;
+  includeDirection?: boolean;
+  includeLength?: boolean;
+  includeMethod?: boolean;
+  includeRpcKind?: boolean;
+  includeRpcLatency?: boolean;
+  includePayload?: boolean;
+  selectedColumnIds?: string[]; // IDs or paths of custom columns to export (if undefined, all custom columns)
+  enableCarryForward?: boolean;
+}
+
 /**
  * Escapes a single cell for CSV formatting (RFC 4180).
  */
@@ -120,7 +135,89 @@ export function exportColumnsCsv(
 }
 
 /**
- * Exports a single column's values as CSV with Seq and Time.
+ * Exports flexibly selected columns to CSV with full timestamp and custom column selection.
+ */
+export function exportSelectedColumnsCsv(
+  frames: WSFrame[],
+  customColumns: CustomColumn[] = [],
+  config: ColumnExportConfig = {}
+): string {
+  const {
+    includeSeq = true,
+    includeTime = true,
+    includeTimestamp = true,
+    includeDeltaMs = false,
+    includeDirection = false,
+    includeLength = false,
+    includeMethod = false,
+    includeRpcKind = false,
+    includeRpcLatency = false,
+    includePayload = false,
+    selectedColumnIds,
+    enableCarryForward = true,
+  } = config;
+
+  // Filter custom columns if specific IDs or paths are specified
+  const activeCustomCols = selectedColumnIds
+    ? customColumns.filter(
+        (col) => selectedColumnIds.includes(col.id) || selectedColumnIds.includes(col.path)
+      )
+    : customColumns;
+
+  // Build headers
+  const headers: string[] = [];
+  if (includeSeq) headers.push('Seq');
+  if (includeDirection) headers.push('Direction');
+  if (includeTime) headers.push('Time');
+  if (includeTimestamp) headers.push('Timestamp_ms');
+  if (includeDeltaMs) headers.push('Delta_ms');
+  if (includeLength) headers.push('Length_bytes');
+  if (includeMethod) headers.push('Method');
+  if (includeRpcKind) headers.push('RPC_Kind');
+  if (includeRpcLatency) headers.push('RPC_Latency_ms');
+
+  for (const col of activeCustomCols) {
+    headers.push(col.name || col.path);
+  }
+
+  if (includePayload) {
+    headers.push('Payload');
+  }
+
+  const rows: string[] = [headers.map(escapeCsvCell).join(',')];
+
+  for (const frame of frames) {
+    const row: any[] = [];
+    if (includeSeq) row.push(frame.seq ?? '');
+    if (includeDirection) row.push(frame.direction || 'in');
+    if (includeTime) row.push(frame.timeFormatted || '');
+    if (includeTimestamp) row.push(frame.timestamp || '');
+    if (includeDeltaMs) row.push(frame.deltaMs !== undefined ? frame.deltaMs : '');
+    if (includeLength) row.push(frame.length ?? (frame.payload?.length || 0));
+    if (includeMethod) row.push(frame.method || '');
+    if (includeRpcKind) row.push(frame.rpcKind || '');
+    if (includeRpcLatency) row.push(frame.rpcLatencyMs !== undefined ? frame.rpcLatencyMs : '');
+
+    for (const col of activeCustomCols) {
+      let val = extractFrameField(frame, col.path);
+      if ((val === undefined || val === null) && enableCarryForward && frame.carried?.[col.id]) {
+        val = frame.carried[col.id].value;
+      }
+      row.push(val);
+    }
+
+    if (includePayload) {
+      row.push(frame.payload || '');
+    }
+
+    rows.push(row.map(escapeCsvCell).join(','));
+  }
+
+  return rows.join('\r\n');
+}
+
+/**
+ * Exports a single column's values as CSV with Seq, formatted Time, and raw Timestamp.
  */
 export function exportSingleColumnCsv(
   frames: WSFrame[],
@@ -129,14 +226,14 @@ export function exportSingleColumnCsv(
 ): string {
   const colName = col.name || col.path;
   const colId = (col as any).id || col.path;
-  const rows: string[] = [`Seq,Time,${escapeCsvCell(colName)}`];
+  const rows: string[] = [`Seq,Time,Timestamp_ms,${escapeCsvCell(colName)}`];
 
   for (const frame of frames) {
     let val = extractFrameField(frame, col.path);
     if ((val === undefined || val === null) && enableCarryForward && frame.carried?.[colId]) {
       val = frame.carried[colId].value;
     }
-    rows.push(`${frame.seq ?? ''},${escapeCsvCell(frame.timeFormatted || '')},${escapeCsvCell(val)}`);
+    rows.push(`${frame.seq ?? ''},${escapeCsvCell(frame.timeFormatted || '')},${frame.timestamp || ''},${escapeCsvCell(val)}`);
   }
 
   return rows.join('\r\n');
