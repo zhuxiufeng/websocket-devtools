@@ -113,7 +113,7 @@ export const useWSStore = create<WSStoreState>()(
         { id: 'hl-warn', text: 'warn', color: '#f59e0b', active: true, tintRow: false },
         { id: 'hl-event', text: 'event', color: '#10b981', active: true, tintRow: false },
       ],
-      enableRowTinting: false,
+      enableRowTinting: true,
       enableCarryForward: true,
       isAutoScrollPaused: false,
       unseenNewFramesCount: 0,

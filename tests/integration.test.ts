@@ -31,11 +31,11 @@ describe('DevTools Full Integration & Verification Test Suite', () => {
     expect(frame.payload).toContain('live_position');
   });
 
-  it('2. Highlighting does not tint rows or add left bars, and highlights text accurately', () => {
+  it('2. Highlighting tints rows by default when matched, and highlights text accurately', () => {
     const store = useWSStore.getState();
     
-    // Check default row tinting setting is strictly false
-    expect(store.enableRowTinting).toBe(false);
+    // Check default row tinting setting is true by default
+    expect(store.enableRowTinting).toBe(true);
 
     // Add a highlight rule for "params"
     store.addHighlightRule('params', '#f59e0b');
