@@ -63,7 +63,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
   const maxFrames = useWSStore((s) => s.maxFrames);
   const setMaxFrames = useWSStore((s) => s.setMaxFrames);
   const importTraceData = useWSStore((s) => s.importTraceData);
-  const frames = useWSStore((s) => s.frames);
   const filterCriteria = useWSStore((s) => s.filterCriteria);
   const customColumns = useWSStore((s) => s.customColumns);
 
@@ -82,11 +81,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
-
-  const filteredFrames = useMemo(() => {
-    if (!filterCriteria.rawQuery.trim()) return frames;
-    return frames.filter((f) => matchesFilter(f, filterCriteria));
-  }, [frames, filterCriteria]);
 
   // Debounced input state for typing smoothness on large buffers
   const [localQuery, setLocalQuery] = useState(filterQuery);
@@ -165,17 +159,23 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
   };
 
   const handleExportTelemetryCsv = (onlyFiltered: boolean) => {
-    const target = onlyFiltered && filterCriteria.rawQuery.trim() ? filteredFrames : frames;
+    const s = useWSStore.getState();
+    if (s.frames.length === 0) return;
+
+    let target = s.frames;
+    if (onlyFiltered && s.filterCriteria.rawQuery.trim()) {
+      target = s.frames.filter((f) => matchesFilter(f, s.filterCriteria));
+    }
     if (target.length === 0) return;
 
-    const csv = exportSelectedColumnsCsv(target, customColumns, {
+    const csv = exportSelectedColumnsCsv(target, s.customColumns, {
       includeSeq: true,
       includeTime: true,
       includeTimestamp: true,
       includeDeltaMs: false,
       includeDirection: false,
       includeMethod: false,
-      enableCarryForward,
+      enableCarryForward: s.enableCarryForward,
     });
     const prefix = onlyFiltered ? 'ws-telemetry-filtered' : 'ws-telemetry-all';
     downloadCsvFile(csv, `${prefix}-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`);
@@ -850,15 +850,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
       <MethodStatsModal isOpen={statsModalOpen} onClose={() => setStatsModalOpen(false)} />
 
       {/* Multi-Column Export Selector Modal */}
-      <ExportColumnsModal
-        isOpen={exportModalOpen}
-        onClose={() => setExportModalOpen(false)}
-        filteredFrames={filteredFrames}
-        allFrames={frames}
-        customColumns={customColumns}
-        defaultCarryForward={enableCarryForward}
-        isFilterActive={Boolean(filterCriteria.rawQuery.trim())}
-      />
+      {exportModalOpen && (
+        <ExportColumnsModal
+          isOpen={exportModalOpen}
+          onClose={() => setExportModalOpen(false)}
+          defaultCarryForward={enableCarryForward}
+          isFilterActive={Boolean(filterCriteria.rawQuery.trim())}
+        />
+      )}
     </div>
   );
 };

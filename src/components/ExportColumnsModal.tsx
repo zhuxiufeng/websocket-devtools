@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import type { WSFrame, CustomColumn } from '../types/websocket';
+import { useWSStore } from '../store/ws-store';
+import { matchesFilter } from '../core/filter-engine';
 import {
   exportSelectedColumnsCsv,
   downloadCsvFile,
@@ -20,22 +22,35 @@ import {
 interface ExportColumnsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  filteredFrames: WSFrame[];
-  allFrames: WSFrame[];
-  customColumns: CustomColumn[];
-  defaultCarryForward: boolean;
-  isFilterActive: boolean;
+  filteredFrames?: WSFrame[];
+  allFrames?: WSFrame[];
+  customColumns?: CustomColumn[];
+  defaultCarryForward?: boolean;
+  isFilterActive?: boolean;
 }
 
 export const ExportColumnsModal: React.FC<ExportColumnsModalProps> = ({
   isOpen,
   onClose,
-  filteredFrames,
-  allFrames,
-  customColumns,
-  defaultCarryForward,
-  isFilterActive,
+  filteredFrames: propFilteredFrames,
+  allFrames: propAllFrames,
+  customColumns: propCustomColumns,
+  defaultCarryForward = true,
+  isFilterActive: propIsFilterActive,
 }) => {
+  // Snapshot data on demand when modal opens to eliminate constant live re-renders in Toolbar
+  const storeState = useWSStore.getState();
+  const allFrames = propAllFrames ?? storeState.frames;
+  const filterCriteria = storeState.filterCriteria;
+  const isFilterActive = propIsFilterActive ?? Boolean(filterCriteria.rawQuery.trim());
+  const customColumns = propCustomColumns ?? storeState.customColumns;
+
+  const filteredFrames = useMemo(() => {
+    if (propFilteredFrames) return propFilteredFrames;
+    if (!isFilterActive) return allFrames;
+    return allFrames.filter((f) => matchesFilter(f, filterCriteria));
+  }, [propFilteredFrames, allFrames, isFilterActive, filterCriteria]);
+
   // Scope selection: 'filtered' | 'all'
   const [scope, setScope] = useState<'filtered' | 'all'>(isFilterActive ? 'filtered' : 'all');
 

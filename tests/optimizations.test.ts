@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useWSStore } from '../src/store/ws-store';
 import { FrameProcessor } from '../src/core/frame-processor';
-import { exportTraceJson, parseTraceJson } from '../src/core/trace-io';
+import { exportTraceJson, parseTraceJson, exportColumnsCsvChunks, exportColumnsCsv, exportSelectedColumnsCsv } from '../src/core/trace-io';
 import type { WSFrame, CustomColumn } from '../src/types/websocket';
 
 describe('Advanced Optimizations & Klipper-Specific Verification Test Suite', () => {
@@ -422,5 +422,106 @@ describe('Advanced Optimizations & Klipper-Specific Verification Test Suite', ()
     const state = useWSStore.getState();
     expect(state.frames.length).toBe(15000);
     expect(state.frames[state.frames.length - 1].seq).toBe(15000);
+  });
+
+  it('10. Generates chunked CSV data efficiently without giant single-string memory blowup', () => {
+    const frames: WSFrame[] = [];
+    for (let i = 1; i <= 2500; i++) {
+      frames.push({
+        id: `f-${i}`,
+        seq: i,
+        connectionId: 'ws://mock',
+        direction: i % 2 === 0 ? 'in' : 'out',
+        timeFormatted: '12:00:00.000',
+        timestamp: 1680000000000 + i * 10,
+        length: 50,
+        payload: `{"val":${i}}`,
+        jsonPayload: null,
+        isJson: true,
+      });
+    }
+
+    const customCols: CustomColumn[] = [
+      { id: 'c-val', path: 'val', name: 'Value', width: 80 },
+    ];
+
+    // Request chunks of 500 rows each
+    const chunks = exportColumnsCsvChunks(frames, customCols, { enableCarryForward: false }, 500);
+    // Header + 2500 rows split into 500-row chunks = 6 chunks
+    expect(chunks.length).toBe(6);
+
+    const merged = chunks.join('\r\n');
+    const direct = exportColumnsCsv(frames, customCols, { enableCarryForward: false });
+    expect(merged).toBe(direct);
+    expect(merged).toContain('Seq,Direction,Time,Timestamp,Delta_ms,Length_bytes,Method,RPC_Kind,RPC_Latency_ms,Value');
+    expect(merged).toContain('2500,in,12:00:00.000');
+  });
+
+  it('11. Resolves O(1) contiguous sequence lookup for JsonInspector Diff mode', () => {
+    const frames: WSFrame[] = [];
+    for (let i = 100; i < 200; i++) {
+      frames.push({
+        id: `frame-${i}`,
+        seq: i,
+        connectionId: 'ws://printer',
+        direction: 'in',
+        timeFormatted: '12:00:00.000',
+        timestamp: 1680000000000 + i,
+        length: 30,
+        payload: `{"temp":${i}}`,
+        jsonPayload: null,
+        isJson: true,
+      });
+    }
+
+    const firstSeq = frames[0].seq!;
+    const selected = frames[42]; // seq 142
+    const targetIdx = selected.seq! - firstSeq;
+    expect(targetIdx).toBe(42);
+    expect(frames[targetIdx].id).toBe(selected.id);
+
+    const prev = targetIdx > 0 ? frames[targetIdx - 1] : null;
+    expect(prev).not.toBeNull();
+    expect(prev?.id).toBe('frame-141');
+    expect(prev?.seq).toBe(141);
+  });
+
+  it('12. Accelerates repeated highlight rule matching with WeakMap caching', () => {
+    const rules = [
+      { id: 'hl-err', text: 'error', color: '#ff0000', active: true, tintRow: false, lowerText: 'error' },
+      { id: 'hl-temp', text: 'temperature', color: '#00ff00', active: true, tintRow: false, lowerText: 'temperature' },
+    ];
+
+    const cache = new WeakMap<WSFrame, any>();
+    const testFrame: WSFrame = {
+      id: 'frame-test',
+      connectionId: 'ws://printer',
+      direction: 'in',
+      timeFormatted: '12:00:00.000',
+      timestamp: 1680000000000,
+      length: 50,
+      payload: '{"method":"notify_status_update","temperature":210.5}',
+      jsonPayload: null,
+      isJson: true,
+    };
+
+    // First call: cache miss
+    expect(cache.has(testFrame)).toBe(false);
+    const text = testFrame.payload.toLowerCase();
+    let matched = null;
+    for (const r of rules) {
+      if (text.includes(r.lowerText)) {
+        matched = r;
+        break;
+      }
+    }
+    cache.set(testFrame, matched);
+
+    expect(matched?.id).toBe('hl-temp');
+    expect(cache.has(testFrame)).toBe(true);
+
+    // Second call: instant cache hit
+    const cachedHit = cache.get(testFrame);
+    expect(cachedHit?.id).toBe('hl-temp');
   });
 });

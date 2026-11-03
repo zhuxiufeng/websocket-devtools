@@ -30,7 +30,7 @@ export const TelemetryTracker: React.FC = () => {
   const clearTelemetryPoints = useWSStore((s) => s.clearTelemetryPoints);
   const customColumns = useWSStore((s) => s.customColumns);
   const addTelemetrySeries = useWSStore((s) => s.addTelemetrySeries);
-  const frames = useWSStore((s) => s.frames);
+  const latestFrameTs = useWSStore((s) => s.frames[s.frames.length - 1]?.timestamp ?? 0);
 
   const [windowSize, setWindowSize] = useState<number>(100);
   const [isMaximized, setIsMaximized] = useState<boolean>(false);
@@ -141,11 +141,8 @@ export const TelemetryTracker: React.FC = () => {
 
       // Anchor live maxTime to the latest incoming frame timestamp so that the time-axis
       // always rolls forward continuously even if a metric is temporarily unchanged
-      if (frames.length > 0) {
-        const latestFrameTs = frames[frames.length - 1]?.timestamp;
-        if (latestFrameTs && latestFrameTs > maxTime) {
-          maxTime = latestFrameTs;
-        }
+      if (latestFrameTs > maxTime) {
+        maxTime = latestFrameTs;
       }
     }
 
@@ -369,7 +366,7 @@ export const TelemetryTracker: React.FC = () => {
       timeTicks,
       yAxisTicks,
     };
-  }, [telemetrySeries, windowSize, isMaximized, scaleMode, zoomRange, frames]);
+  }, [telemetrySeries, windowSize, isMaximized, scaleMode, zoomRange, latestFrameTs]);
 
   // Handle Zoom via mouse wheel
   const handleWheel = (e: React.WheelEvent) => {

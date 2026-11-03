@@ -70,13 +70,15 @@ export function exportTraceJson(
 }
 
 /**
- * Exports frames with standard columns and dynamic custom columns into CSV format.
+ * Exports frames with standard columns and dynamic custom columns into CSV format chunks.
+ * Chunking in batches of 10,000 rows avoids massive single-string memory allocations on 100k~1M buffers.
  */
-export function exportColumnsCsv(
+export function exportColumnsCsvChunks(
   frames: WSFrame[],
   customColumns: CustomColumn[] = [],
-  options: CsvExportOptions = {}
-): string {
+  options: CsvExportOptions = {},
+  chunkSize = 10000
+): string[] {
   const { enableCarryForward = true, includePayload = false } = options;
 
   // Build column headers
@@ -100,9 +102,11 @@ export function exportColumnsCsv(
     headers.push('Payload');
   }
 
-  const rows: string[] = [headers.map(escapeCsvCell).join(',')];
+  const chunks: string[] = [];
+  let buffer: string[] = [headers.map(escapeCsvCell).join(',')];
 
-  for (const frame of frames) {
+  for (let i = 0; i < frames.length; i++) {
+    const frame = frames[i];
     const row: any[] = [
       frame.seq ?? '',
       frame.direction || 'in',
@@ -128,10 +132,30 @@ export function exportColumnsCsv(
       row.push(frame.payload || '');
     }
 
-    rows.push(row.map(escapeCsvCell).join(','));
+    buffer.push(row.map(escapeCsvCell).join(','));
+
+    if (buffer.length >= chunkSize) {
+      chunks.push(buffer.join('\r\n'));
+      buffer = [];
+    }
   }
 
-  return rows.join('\r\n');
+  if (buffer.length > 0) {
+    chunks.push(buffer.join('\r\n'));
+  }
+
+  return chunks;
+}
+
+/**
+ * Exports frames with standard columns and dynamic custom columns into CSV format.
+ */
+export function exportColumnsCsv(
+  frames: WSFrame[],
+  customColumns: CustomColumn[] = [],
+  options: CsvExportOptions = {}
+): string {
+  return exportColumnsCsvChunks(frames, customColumns, options).join('\r\n');
 }
 
 /**
@@ -184,9 +208,12 @@ export function exportSelectedColumnsCsv(
     headers.push('Payload');
   }
 
-  const rows: string[] = [headers.map(escapeCsvCell).join(',')];
+  const chunks: string[] = [];
+  let buffer: string[] = [headers.map(escapeCsvCell).join(',')];
+  const chunkSize = 10000;
 
-  for (const frame of frames) {
+  for (let i = 0; i < frames.length; i++) {
+    const frame = frames[i];
     const row: any[] = [];
     if (includeSeq) row.push(frame.seq ?? '');
     if (includeDirection) row.push(frame.direction || 'in');
@@ -210,10 +237,19 @@ export function exportSelectedColumnsCsv(
       row.push(frame.payload || '');
     }
 
-    rows.push(row.map(escapeCsvCell).join(','));
+    buffer.push(row.map(escapeCsvCell).join(','));
+
+    if (buffer.length >= chunkSize) {
+      chunks.push(buffer.join('\r\n'));
+      buffer = [];
+    }
   }
 
-  return rows.join('\r\n');
+  if (buffer.length > 0) {
+    chunks.push(buffer.join('\r\n'));
+  }
+
+  return chunks.join('\r\n');
 }
 
 /**
@@ -226,27 +262,43 @@ export function exportSingleColumnCsv(
 ): string {
   const colName = col.name || col.path;
   const colId = (col as any).id || col.path;
-  const rows: string[] = [`Seq,Time,Timestamp_ms,${escapeCsvCell(colName)}`];
+  const chunks: string[] = [];
+  let buffer: string[] = [`Seq,Time,Timestamp_ms,${escapeCsvCell(colName)}`];
+  const chunkSize = 10000;
 
-  for (const frame of frames) {
+  for (let i = 0; i < frames.length; i++) {
+    const frame = frames[i];
     let val = extractFrameField(frame, col.path);
     if ((val === undefined || val === null) && enableCarryForward && frame.carried?.[colId]) {
       val = frame.carried[colId].value;
     }
-    rows.push(`${frame.seq ?? ''},${escapeCsvCell(frame.timeFormatted || '')},${frame.timestamp || ''},${escapeCsvCell(val)}`);
+    buffer.push(`${frame.seq ?? ''},${escapeCsvCell(frame.timeFormatted || '')},${frame.timestamp || ''},${escapeCsvCell(val)}`);
+
+    if (buffer.length >= chunkSize) {
+      chunks.push(buffer.join('\r\n'));
+      buffer = [];
+    }
   }
 
-  return rows.join('\r\n');
+  if (buffer.length > 0) {
+    chunks.push(buffer.join('\r\n'));
+  }
+
+  return chunks.join('\r\n');
 }
 
 /**
  * Trigger download of CSV file with UTF-8 BOM for Microsoft Excel / Sheets compatibility.
+ * Supports string or string[] chunk arrays to avoid single-string memory limits on 1M rows.
  */
 export function downloadCsvFile(
-  csvContent: string,
+  csvContent: string | string[],
   filename = `ws-columns-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`
 ) {
-  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const parts = Array.isArray(csvContent)
+    ? ['\uFEFF', ...csvContent]
+    : ['\uFEFF' + csvContent];
+  const blob = new Blob(parts, { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

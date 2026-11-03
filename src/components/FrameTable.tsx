@@ -292,16 +292,29 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
       .map((r) => ({ ...r, lowerText: r.text.toLowerCase() }));
   }, [highlightRules]);
 
+  // WeakMap cache for matched rules per frame object, avoiding repeated toLowerCase() during rapid scrolling
+  const highlightRuleCacheRef = useRef<WeakMap<WSFrame, (HighlightRule & { lowerText: string }) | null>>(new WeakMap());
+
+  useEffect(() => {
+    highlightRuleCacheRef.current = new WeakMap();
+  }, [activeHighlightRules]);
+
   const getMatchedHighlightRule = useCallback(
     (frame: WSFrame): (HighlightRule & { lowerText: string }) | null => {
       if (activeHighlightRules.length === 0) return null;
+      const cached = highlightRuleCacheRef.current.get(frame);
+      if (cached !== undefined) return cached;
+
       const text = (frame.payload || '').toLowerCase();
+      let matched: (HighlightRule & { lowerText: string }) | null = null;
       for (const rule of activeHighlightRules) {
         if (text.includes(rule.lowerText)) {
-          return rule;
+          matched = rule;
+          break;
         }
       }
-      return null;
+      highlightRuleCacheRef.current.set(frame, matched);
+      return matched;
     },
     [activeHighlightRules]
   );

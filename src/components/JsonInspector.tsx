@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { getDisambiguatedPathAndName } from '../utils/path-helper';
 import { computeJsonDiff } from '../utils/json-diff';
+import type { WSFrame } from '../types/websocket';
 
 interface ContextMenuState {
   visible: boolean;
@@ -117,7 +118,6 @@ export const JsonInspector: React.FC = () => {
     );
   });
 
-  const allFrames = useWSStore((state) => state.frames);
   const followLatest = useWSStore((state) => state.followLatestInspector);
   const setFollowLatest = useWSStore((state) => state.setFollowLatestInspector);
   const jumpToLatestFrame = useWSStore((state) => state.jumpToLatestFrame);
@@ -131,6 +131,8 @@ export const JsonInspector: React.FC = () => {
   const [viewMode, setViewMode] = useState<'tree' | 'diff' | 'snapshot' | 'formatted' | 'raw'>('tree');
   const [copied, setCopied] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const searchDebounceRef = useRef<number | null>(null);
   const [filterMatchesOnly, setFilterMatchesOnly] = useState(false);
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [totalMatches, setTotalMatches] = useState(0);
@@ -146,6 +148,26 @@ export const JsonInspector: React.FC = () => {
   const menuRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSearchChange = (val: string) => {
+    setSearchQuery(val);
+    if (searchDebounceRef.current !== null) {
+      clearTimeout(searchDebounceRef.current);
+    }
+    searchDebounceRef.current = window.setTimeout(() => {
+      searchDebounceRef.current = null;
+      setDebouncedSearchQuery(val);
+    }, 120);
+  };
+
+  const handleClearSearch = () => {
+    if (searchDebounceRef.current !== null) {
+      clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
+    }
+    setSearchQuery('');
+    setDebouncedSearchQuery('');
+  };
 
   // Fallback lazy parse to ensure Tree/Diff always works even if jsonPayload wasn't pre-populated
   const effectiveJsonPayload = useMemo(() => {
@@ -164,11 +186,22 @@ export const JsonInspector: React.FC = () => {
     return null;
   }, [selectedFrame]);
 
-  // Compute Diff vs Previous frame
+  // Compute Diff vs Previous frame using O(1) arithmetic sequence lookup on demand
   const diffEntries = useMemo(() => {
     if (!selectedFrame || viewMode !== 'diff') return [];
-    const idx = allFrames.findIndex((f) => f.id === selectedFrame.id);
-    const prev = idx > 0 ? allFrames[idx - 1] : null;
+    const storeFrames = useWSStore.getState().frames;
+    let prev: WSFrame | null = null;
+    if (selectedFrame.seq !== undefined && storeFrames.length > 0) {
+      const firstSeq = storeFrames[0].seq ?? 0;
+      const targetIdx = selectedFrame.seq - firstSeq;
+      if (targetIdx > 0 && targetIdx < storeFrames.length && storeFrames[targetIdx]?.id === selectedFrame.id) {
+        prev = storeFrames[targetIdx - 1];
+      }
+    }
+    if (!prev) {
+      const idx = storeFrames.findIndex((f) => f.id === selectedFrame.id);
+      prev = idx > 0 ? storeFrames[idx - 1] : null;
+    }
     const currentJson = effectiveJsonPayload;
     let prevJson = prev?.jsonPayload;
     if (!prevJson && prev?.payload && !prev?.isBinary) {
@@ -182,7 +215,7 @@ export const JsonInspector: React.FC = () => {
     }
     if (!prevJson || !currentJson) return [];
     return computeJsonDiff(prevJson, currentJson);
-  }, [selectedFrame, allFrames, viewMode, effectiveJsonPayload]);
+  }, [selectedFrame, viewMode, effectiveJsonPayload]);
 
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
@@ -224,7 +257,7 @@ export const JsonInspector: React.FC = () => {
     return getSnapshotAtSeq(selectedFrame.connectionId, selectedFrame.seq ?? 0);
   }, [selectedFrame, viewMode, getSnapshotAtSeq]);
 
-  const trimmedQuery = searchQuery.trim();
+  const trimmedQuery = debouncedSearchQuery.trim();
   const queryLower = trimmedQuery.toLowerCase();
 
   const filteredDiffEntries = useMemo(() => {
@@ -515,17 +548,22 @@ export const JsonInspector: React.FC = () => {
             ref={searchInputRef}
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
+                if (searchDebounceRef.current !== null) {
+                  clearTimeout(searchDebounceRef.current);
+                  searchDebounceRef.current = null;
+                }
+                setDebouncedSearchQuery(searchQuery);
                 if (e.shiftKey) {
                   handlePrevMatch();
                 } else {
                   handleNextMatch();
                 }
               } else if (e.key === 'Escape') {
-                setSearchQuery('');
+                handleClearSearch();
               }
             }}
             placeholder="Search key or value in payload... (Enter / Shift+Enter)"
@@ -533,7 +571,7 @@ export const JsonInspector: React.FC = () => {
           />
           {searchQuery && (
             <button
-              onClick={() => setSearchQuery('')}
+              onClick={handleClearSearch}
               className="absolute right-1.5 text-[#777777] hover:text-[#cccccc]"
               title="Clear search (Esc)"
             >
