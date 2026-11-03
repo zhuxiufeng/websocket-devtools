@@ -18,8 +18,14 @@ import {
   BookmarkPlus,
   History,
   Database,
+  FileSpreadsheet,
+  Table,
+  Copy,
+  Check,
+  ChevronDown,
 } from 'lucide-react';
-import { downloadTraceFile } from '../core/trace-io';
+import { downloadTraceFile, exportColumnsCsv, downloadCsvFile } from '../core/trace-io';
+import { matchesFilter } from '../core/filter-engine';
 import { MethodStatsModal } from './MethodStatsModal';
 
 interface ToolbarProps {
@@ -63,6 +69,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
   const [newPresetName, setNewPresetName] = useState('');
   const [showSavePresetInput, setShowSavePresetInput] = useState(false);
   const [statsModalOpen, setStatsModalOpen] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
 
   // Debounced input state for typing smoothness on large buffers
   const [localQuery, setLocalQuery] = useState(filterQuery);
@@ -124,7 +132,48 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
     setFilterQuery(currentTokens.join(' '));
   };
 
-  const handleExport = () => {
+  const handleExportCsv = (onlyFiltered: boolean) => {
+    const s = useWSStore.getState();
+    if (s.frames.length === 0) return;
+
+    let targetFrames = s.frames;
+    if (onlyFiltered && s.filterCriteria.rawQuery.trim()) {
+      targetFrames = s.frames.filter((f) => matchesFilter(f, s.filterCriteria));
+    }
+
+    const csv = exportColumnsCsv(targetFrames, s.customColumns, {
+      enableCarryForward: s.enableCarryForward,
+    });
+    const prefix = onlyFiltered ? 'ws-columns-filtered' : 'ws-columns-all';
+    downloadCsvFile(csv, `${prefix}-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`);
+  };
+
+  const handleCopyCsv = async () => {
+    const s = useWSStore.getState();
+    if (s.frames.length === 0) return;
+
+    let targetFrames = s.frames;
+    if (s.filterCriteria.rawQuery.trim()) {
+      targetFrames = s.frames.filter((f) => matchesFilter(f, s.filterCriteria));
+    }
+
+    const csv = exportColumnsCsv(targetFrames, s.customColumns, {
+      enableCarryForward: s.enableCarryForward,
+    });
+
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(csv);
+        setCopySuccess(true);
+        setTimeout(() => {
+          setCopySuccess(false);
+          setShowExportMenu(false);
+        }, 1500);
+      }
+    } catch {}
+  };
+
+  const handleExportJson = () => {
     const s = useWSStore.getState();
     if (s.frames.length === 0) return;
     downloadTraceFile(s.frames, Object.values(s.connections), s.customColumns, s.highlightRules);
@@ -193,15 +242,97 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
             <Trash2 className="w-3.5 h-3.5" />
           </button>
 
-          {/* Export Trace */}
-          <button
-            onClick={handleExport}
-            className="px-2 py-1 bg-[#2d2d2d] hover:bg-[#383838] text-[#aaaaaa] hover:text-[#38bdf8] rounded border border-[#444444] transition-colors flex items-center gap-1 text-[11px]"
-            title="Export full trace session as JSON"
-          >
-            <Download className="w-3.5 h-3.5 text-[#38bdf8]" />
-            <span>Export</span>
-          </button>
+          {/* Export Dropdown Menu */}
+          <div className="relative">
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className={`px-2 py-1 bg-[#2d2d2d] hover:bg-[#383838] rounded border transition-colors flex items-center gap-1 text-[11px] ${
+                showExportMenu ? 'text-[#38bdf8] border-[#38bdf8]' : 'text-[#aaaaaa] hover:text-[#38bdf8] border-[#444444]'
+              }`}
+              title="Export column data as CSV or full JSON session"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Export</span>
+              <ChevronDown className="w-3 h-3 text-[#777777]" />
+            </button>
+
+            {showExportMenu && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowExportMenu(false)}
+                />
+                <div className="absolute left-0 mt-1 w-64 bg-[#252526] border border-[#444444] rounded shadow-2xl py-1 z-50 text-[11px]">
+                  <div className="px-3 py-1 text-[10px] text-[#777777] uppercase font-semibold tracking-wider border-b border-[#333333]">
+                    Export Column Data (CSV / Excel)
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      handleExportCsv(true);
+                      setShowExportMenu(false);
+                    }}
+                    className="w-full px-3 py-1.5 hover:bg-[#333333] text-left flex items-center justify-between text-[#cccccc] hover:text-white transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>Columns as CSV (Filtered View)</span>
+                    </span>
+                    <span className="text-[10px] text-[#888888]">.csv</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      handleExportCsv(false);
+                      setShowExportMenu(false);
+                    }}
+                    className="w-full px-3 py-1.5 hover:bg-[#333333] text-left flex items-center justify-between text-[#cccccc] hover:text-white transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Table className="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
+                      <span>Columns as CSV (All Frames)</span>
+                    </span>
+                    <span className="text-[10px] text-[#888888]">.csv</span>
+                  </button>
+
+                  <button
+                    onClick={handleCopyCsv}
+                    className="w-full px-3 py-1.5 hover:bg-[#333333] text-left flex items-center justify-between text-[#cccccc] hover:text-white transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      {copySuccess ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      )}
+                      <span>{copySuccess ? 'Copied to Clipboard!' : 'Copy Columns to Clipboard'}</span>
+                    </span>
+                    <span className="text-[10px] text-[#888888]">CSV</span>
+                  </button>
+
+                  <div className="my-1 border-t border-[#333333]" />
+
+                  <div className="px-3 py-1 text-[10px] text-[#777777] uppercase font-semibold tracking-wider">
+                    Trace Replay Archive
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      handleExportJson();
+                      setShowExportMenu(false);
+                    }}
+                    className="w-full px-3 py-1.5 hover:bg-[#333333] text-left flex items-center justify-between text-[#cccccc] hover:text-white transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Download className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                      <span>Full Trace Archive (Replay)</span>
+                    </span>
+                    <span className="text-[10px] text-[#888888]">.json</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
 
           {/* Import Trace */}
           <button

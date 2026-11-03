@@ -6,8 +6,9 @@ import { IncrementalFilterEngine } from '../core/incremental-filter';
 import { extractFrameField, formatExtractedValue } from '../core/field-extractor';
 import { highlightText } from '../utils/highlighter';
 import { formatColumnHeader } from '../utils/path-helper';
-import { ArrowDownLeft, ArrowUpRight, X, ExternalLink, ArrowDown } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, X, ExternalLink, ArrowDown, Download, Copy, Check } from 'lucide-react';
 import type { WSFrame, HighlightRule, CustomColumn } from '../types/websocket';
+import { exportSingleColumnCsv, downloadCsvFile } from '../core/trace-io';
 
 interface FrameTableProps {
   selectedConnectionId: string | null;
@@ -243,6 +244,7 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
 
   // Column resizing state
   const [resizingCol, setResizingCol] = useState<{ id: string; startX: number; startWidth: number } | null>(null);
+  const [copiedColId, setCopiedColId] = useState<string | null>(null);
 
   // Incremental filter engine instance
   const filterEngineRef = useRef<IncrementalFilterEngine | null>(null);
@@ -257,6 +259,31 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
   const filteredFrames = useMemo(() => {
     return filterEngineRef.current!.filter(frames, selectedConnectionId, filterCriteria);
   }, [frames, selectedConnectionId, filterCriteria]);
+
+  const handleExportSingleColumn = useCallback(
+    (col: CustomColumn) => {
+      const targetFrames = filteredFrames.length > 0 ? filteredFrames : frames;
+      const csv = exportSingleColumnCsv(targetFrames, col, enableCarryForward);
+      const cleanName = (col.name || col.path).replace(/[^a-zA-Z0-9_\u4e00-\u9fa5-]/g, '_');
+      downloadCsvFile(csv, `ws-col-${cleanName}-${Date.now()}.csv`);
+    },
+    [filteredFrames, frames, enableCarryForward]
+  );
+
+  const handleCopySingleColumn = useCallback(
+    async (col: CustomColumn) => {
+      const targetFrames = filteredFrames.length > 0 ? filteredFrames : frames;
+      const csv = exportSingleColumnCsv(targetFrames, col, enableCarryForward);
+      try {
+        if (navigator?.clipboard?.writeText) {
+          await navigator.clipboard.writeText(csv);
+          setCopiedColId(col.id);
+          setTimeout(() => setCopiedColId(null), 1500);
+        }
+      } catch {}
+    },
+    [filteredFrames, frames, enableCarryForward]
+  );
 
   // Fast active highlight rules pre-matching
   const activeHighlightRules = useMemo(() => {
@@ -427,16 +454,42 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
                 <span className="truncate" title={col.path}>
                   {formatColumnHeader(col.name, col.path)}
                 </span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeCustomColumn(col.id);
-                  }}
-                  className="text-[#888888] hover:text-red-400 p-0.5 rounded transition-colors ml-1"
-                  title="Remove column"
-                >
-                  <X className="w-3 h-3" />
-                </button>
+                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-1 shrink-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleExportSingleColumn(col);
+                    }}
+                    className="text-[#888888] hover:text-[#38bdf8] p-0.5 rounded transition-colors"
+                    title={`Export column "${col.name || col.path}" as CSV`}
+                  >
+                    <Download className="w-2.5 h-2.5" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopySingleColumn(col);
+                    }}
+                    className="text-[#888888] hover:text-[#38bdf8] p-0.5 rounded transition-colors"
+                    title={`Copy column "${col.name || col.path}" values to clipboard`}
+                  >
+                    {copiedColId === col.id ? (
+                      <Check className="w-2.5 h-2.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="w-2.5 h-2.5" />
+                    )}
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeCustomColumn(col.id);
+                    }}
+                    className="text-[#888888] hover:text-red-400 p-0.5 rounded transition-colors"
+                    title="Remove column"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
                 {/* Drag resize handle */}
                 <div
                   onMouseDown={(e) => {

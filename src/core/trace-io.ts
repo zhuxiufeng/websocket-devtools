@@ -1,4 +1,5 @@
 import type { WSFrame, WSConnection, CustomColumn, HighlightRule } from '../types/websocket';
+import { extractFrameField } from './field-extractor';
 
 export interface TraceFileFormat {
   version: 1;
@@ -8,6 +9,28 @@ export interface TraceFileFormat {
   customColumns: CustomColumn[];
   highlightRules: HighlightRule[];
   frames: WSFrame[];
+}
+
+export interface CsvExportOptions {
+  enableCarryForward?: boolean;
+  includePayload?: boolean;
+}
+
+/**
+ * Escapes a single cell for CSV formatting (RFC 4180).
+ */
+export function escapeCsvCell(val: any): string {
+  if (val === null || val === undefined) return '';
+  let str: string;
+  if (typeof val === 'object') {
+    str = JSON.stringify(val);
+  } else {
+    str = String(val);
+  }
+  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
 }
 
 /**
@@ -29,6 +52,112 @@ export function exportTraceJson(
     frames,
   };
   return JSON.stringify(data, null, 2);
+}
+
+/**
+ * Exports frames with standard columns and dynamic custom columns into CSV format.
+ */
+export function exportColumnsCsv(
+  frames: WSFrame[],
+  customColumns: CustomColumn[] = [],
+  options: CsvExportOptions = {}
+): string {
+  const { enableCarryForward = true, includePayload = false } = options;
+
+  // Build column headers
+  const headers = [
+    'Seq',
+    'Direction',
+    'Time',
+    'Timestamp',
+    'Delta_ms',
+    'Length_bytes',
+    'Method',
+    'RPC_Kind',
+    'RPC_Latency_ms',
+  ];
+
+  for (const col of customColumns) {
+    headers.push(col.name || col.path);
+  }
+
+  if (includePayload) {
+    headers.push('Payload');
+  }
+
+  const rows: string[] = [headers.map(escapeCsvCell).join(',')];
+
+  for (const frame of frames) {
+    const row: any[] = [
+      frame.seq ?? '',
+      frame.direction || 'in',
+      frame.timeFormatted || '',
+      frame.timestamp || '',
+      frame.deltaMs !== undefined ? frame.deltaMs : '',
+      frame.length ?? (frame.payload?.length || 0),
+      frame.method || '',
+      frame.rpcKind || '',
+      frame.rpcLatencyMs !== undefined ? frame.rpcLatencyMs : '',
+    ];
+
+    // Dynamic custom columns with carry-forward support
+    for (const col of customColumns) {
+      let val = extractFrameField(frame, col.path);
+      if ((val === undefined || val === null) && enableCarryForward && frame.carried?.[col.id]) {
+        val = frame.carried[col.id].value;
+      }
+      row.push(val);
+    }
+
+    if (includePayload) {
+      row.push(frame.payload || '');
+    }
+
+    rows.push(row.map(escapeCsvCell).join(','));
+  }
+
+  return rows.join('\r\n');
+}
+
+/**
+ * Exports a single column's values as CSV with Seq and Time.
+ */
+export function exportSingleColumnCsv(
+  frames: WSFrame[],
+  col: CustomColumn | { path: string; name?: string; id?: string },
+  enableCarryForward = true
+): string {
+  const colName = col.name || col.path;
+  const colId = (col as any).id || col.path;
+  const rows: string[] = [`Seq,Time,${escapeCsvCell(colName)}`];
+
+  for (const frame of frames) {
+    let val = extractFrameField(frame, col.path);
+    if ((val === undefined || val === null) && enableCarryForward && frame.carried?.[colId]) {
+      val = frame.carried[colId].value;
+    }
+    rows.push(`${frame.seq ?? ''},${escapeCsvCell(frame.timeFormatted || '')},${escapeCsvCell(val)}`);
+  }
+
+  return rows.join('\r\n');
+}
+
+/**
+ * Trigger download of CSV file with UTF-8 BOM for Microsoft Excel / Sheets compatibility.
+ */
+export function downloadCsvFile(
+  csvContent: string,
+  filename = `ws-columns-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`
+) {
+  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 /**
