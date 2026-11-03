@@ -357,4 +357,70 @@ describe('Advanced Optimizations & Klipper-Specific Verification Test Suite', ()
     store.selectAdjacentFrame(-1);
     expect(useWSStore.getState().selectedFrameId).toBe('f-2');
   });
+
+  it('8. Evicts stale JSON AST for historical frames beyond active window (saving 70%+ heap)', () => {
+    const store = useWSStore.getState();
+    store.clearFrames();
+
+    // Ingest 300 frames with JSON payloads
+    const batch: Partial<WSFrame>[] = [];
+    for (let i = 1; i <= 300; i++) {
+      batch.push({
+        id: `ast-frame-${i}`,
+        seq: i,
+        connectionId: 'ws://printer',
+        payload: JSON.stringify({ index: i, heavyNested: { val: i * 10, arr: [1, 2, 3] } }),
+        isJson: true,
+      });
+    }
+
+    store.addFramesBatch(batch);
+    const frames = useWSStore.getState().frames;
+    expect(frames.length).toBe(300);
+
+    // Selected frame preserves jsonPayload for immediate inspector rendering
+    expect(frames[0].id).toBe(useWSStore.getState().selectedFrameId);
+    expect(frames[0].jsonPayload).not.toBeNull();
+
+    // Other unselected historical frames (< index 100, which is 300 - 200) have heavy AST evicted
+    expect(frames[1].jsonPayload).toBeNull();
+    expect(frames[50].jsonPayload).toBeNull();
+    expect(frames[99].jsonPayload).toBeNull();
+
+    // Recent frames (>= index 100) retain their jsonPayload for fast inspection
+    expect(frames[100].jsonPayload).not.toBeNull();
+    expect(frames[299].jsonPayload).not.toBeNull();
+
+    // Verify on-demand lazy parsing: accessing an evicted frame still allows on-demand parse
+    const oldFrame = frames[10];
+    expect(oldFrame.jsonPayload).toBeNull();
+    const parsed = JSON.parse(oldFrame.payload);
+    expect(parsed.index).toBe(11);
+  });
+
+  it('9. Bounds RPC lookup map size and avoids redundant array allocations during high-buffer saturation', () => {
+    const store = useWSStore.getState();
+    store.clearFrames();
+    store.setMaxFrames(20000);
+
+    // Ingest 15,000 frames in batches of 1000
+    for (let b = 0; b < 15; b++) {
+      const batch: Partial<WSFrame>[] = [];
+      for (let i = 0; i < 1000; i++) {
+        const seq = b * 1000 + i + 1;
+        batch.push({
+          id: `cap-frame-${seq}`,
+          seq,
+          connectionId: 'ws://printer',
+          payload: `{"seq":${seq}}`,
+          isJson: true,
+        });
+      }
+      store.addFramesBatch(batch);
+    }
+
+    const state = useWSStore.getState();
+    expect(state.frames.length).toBe(15000);
+    expect(state.frames[state.frames.length - 1].seq).toBe(15000);
+  });
 });

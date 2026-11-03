@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useWSStore } from '../store/ws-store';
 import {
   Play,
@@ -63,6 +63,34 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
   const [newPresetName, setNewPresetName] = useState('');
   const [showSavePresetInput, setShowSavePresetInput] = useState(false);
   const [statsModalOpen, setStatsModalOpen] = useState(false);
+
+  // Debounced input state for typing smoothness on large buffers
+  const [localQuery, setLocalQuery] = useState(filterQuery);
+  const debounceTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setLocalQuery(filterQuery);
+  }, [filterQuery]);
+
+  const handleQueryChange = (val: string) => {
+    setLocalQuery(val);
+    if (debounceTimerRef.current !== null) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = window.setTimeout(() => {
+      debounceTimerRef.current = null;
+      setFilterQuery(val);
+    }, 150);
+  };
+
+  const handleQueryImmediate = (val: string) => {
+    if (debounceTimerRef.current !== null) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    setLocalQuery(val);
+    setFilterQuery(val);
+  };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -247,20 +275,23 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
             <input
               id="ws-filter-input"
               type="text"
-              value={filterQuery}
-              onChange={(e) => setFilterQuery(e.target.value)}
+              value={localQuery}
+              onChange={(e) => handleQueryChange(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && filterQuery.trim()) {
-                  addFilterHistory(filterQuery);
+                if (e.key === 'Enter') {
+                  handleQueryImmediate(localQuery);
+                  if (localQuery.trim()) {
+                    addFilterHistory(localQuery);
+                  }
                 }
               }}
               placeholder="Filter (Press / or Ctrl+F to focus, e.g. dir:in has:temperature)"
               className="w-full bg-[#1e1e1e] border border-[#3c3c3c] focus:border-[#38bdf8] text-[#cccccc] pl-8 pr-20 py-1 rounded text-xs outline-none placeholder-[#555555] font-mono transition-colors"
             />
             <div className="absolute right-2 flex items-center gap-1.5">
-              {filterQuery && (
+              {localQuery && (
                 <button
-                  onClick={() => setFilterQuery('')}
+                  onClick={() => handleQueryImmediate('')}
                   className="text-[#666666] hover:text-[#cccccc] p-0.5"
                   title="Clear filter"
                 >

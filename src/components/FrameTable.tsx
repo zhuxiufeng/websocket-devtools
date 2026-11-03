@@ -2,6 +2,7 @@ import React, { useRef, useMemo, useEffect, useState, useCallback } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useWSStore } from '../store/ws-store';
 import { matchesFilter } from '../core/filter-engine';
+import { IncrementalFilterEngine } from '../core/incremental-filter';
 import { extractFrameField, formatExtractedValue } from '../core/field-extractor';
 import { highlightText } from '../utils/highlighter';
 import { formatColumnHeader } from '../utils/path-helper';
@@ -243,19 +244,18 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
   // Column resizing state
   const [resizingCol, setResizingCol] = useState<{ id: string; startX: number; startWidth: number } | null>(null);
 
-  // Filtered frames computation: O(1) instant return when no query/connection is active,
-  // and completely avoids buffer freeze when MAX_FRAMES (10000) cap is reached.
-  const filteredFrames = useMemo(() => {
-    if (!selectedConnectionId && !filterCriteria.rawQuery.trim()) {
-      return frames;
-    }
+  // Incremental filter engine instance
+  const filterEngineRef = useRef<IncrementalFilterEngine | null>(null);
+  if (!filterEngineRef.current) {
+    filterEngineRef.current = new IncrementalFilterEngine();
+  }
 
-    return frames.filter((frame) => {
-      if (selectedConnectionId && frame.connectionId !== selectedConnectionId) {
-        return false;
-      }
-      return matchesFilter(frame, filterCriteria);
-    });
+  // Filtered frames computation:
+  // - O(1) instant return when no query/connection is active
+  // - O(k) incremental append when frames stream into large buffers (up to 1M)
+  // - O(N) full re-filter only on query, regex, or connection selection change
+  const filteredFrames = useMemo(() => {
+    return filterEngineRef.current!.filter(frames, selectedConnectionId, filterCriteria);
   }, [frames, selectedConnectionId, filterCriteria]);
 
   // Fast active highlight rules pre-matching

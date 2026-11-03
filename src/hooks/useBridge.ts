@@ -39,20 +39,51 @@ export function useBridge() {
 
   const mockRef = useRef<MockStreamGenerator | null>(null);
   const queueRef = useRef<any[]>([]);
-  const rafRef = useRef<number | null>(null);
+  const timerRef = useRef<number | null>(null);
+  const isRafRef = useRef<boolean>(false);
+  const lastFlushTsRef = useRef<number>(0);
 
-  // Coalesce high-frequency incoming frames into 60fps rAF batches
+  const cancelPendingTimer = () => {
+    if (timerRef.current !== null) {
+      if (isRafRef.current && typeof cancelAnimationFrame !== 'undefined') {
+        cancelAnimationFrame(timerRef.current);
+      } else if (typeof clearTimeout !== 'undefined') {
+        clearTimeout(timerRef.current);
+      }
+      timerRef.current = null;
+    }
+  };
+
+  // Coalesce high-frequency incoming frames into adaptive rAF / throttled batches
+  // Reduces GC pressure and Zustand dispatch frequency on large 100k~1M buffers
   const enqueueFrames = (frames: any[]) => {
     queueRef.current.push(...frames);
-    if (rafRef.current === null) {
-      rafRef.current = requestAnimationFrame(() => {
-        rafRef.current = null;
+    if (timerRef.current === null) {
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const elapsed = now - lastFlushTsRef.current;
+      // Minimum throttle interval during burst: 40ms (~25Hz) to prevent GC churn on huge buffers
+      const delay = elapsed < 40 ? 40 - elapsed : 0;
+
+      const flush = () => {
+        timerRef.current = null;
+        isRafRef.current = false;
+        lastFlushTsRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now();
         if (queueRef.current.length > 0) {
           const batch = queueRef.current;
           queueRef.current = [];
           addFramesBatch(batch);
         }
-      });
+      };
+
+      if (delay > 0 && typeof window !== 'undefined' && window.setTimeout) {
+        isRafRef.current = false;
+        timerRef.current = window.setTimeout(flush, delay) as unknown as number;
+      } else if (typeof requestAnimationFrame !== 'undefined') {
+        isRafRef.current = true;
+        timerRef.current = requestAnimationFrame(flush);
+      } else {
+        flush();
+      }
     }
   };
 
@@ -64,10 +95,7 @@ export function useBridge() {
 
     return () => {
       mockRef.current?.stop();
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
+      cancelPendingTimer();
     };
   }, [addFramesBatch]);
 
@@ -117,10 +145,7 @@ export function useBridge() {
         // Ignore disconnect error
       }
       globalDevToolsPort = null;
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
+      cancelPendingTimer();
     };
   }, [addFramesBatch, setMockActive]);
 }
