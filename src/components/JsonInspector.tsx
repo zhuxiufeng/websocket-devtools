@@ -21,10 +21,15 @@ import {
   Search,
   X,
   ChevronUp,
+  PanelRightClose,
 } from 'lucide-react';
 import { getDisambiguatedPathAndName } from '../utils/path-helper';
 import { computeJsonDiff } from '../utils/json-diff';
 import type { WSFrame } from '../types/websocket';
+
+export interface JsonInspectorProps {
+  onClose?: () => void;
+}
 
 interface ContextMenuState {
   visible: boolean;
@@ -106,7 +111,7 @@ export function subtreeHasMatch(
   return valStr.includes(queryLower);
 }
 
-export const JsonInspector: React.FC = () => {
+export const JsonInspector: React.FC<JsonInspectorProps> = ({ onClose }) => {
   const selectedFrame = useWSStore((state) => {
     if (state.followLatestInspector) {
       return state.frames[state.frames.length - 1] || null;
@@ -418,6 +423,17 @@ export const JsonInspector: React.FC = () => {
             {copied ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
             <span>{copied ? 'Copied' : 'Copy'}</span>
           </button>
+
+          {/* Close / Collapse Inspector Panel */}
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-1 text-[#888888] hover:text-white hover:bg-[#333333] rounded transition-colors ml-1"
+              title="Collapse Inspector Panel (Shortcut: ] )"
+            >
+              <PanelRightClose className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 

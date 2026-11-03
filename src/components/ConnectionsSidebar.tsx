@@ -1,15 +1,17 @@
 import React from 'react';
 import { useWSStore } from '../store/ws-store';
-import { Network, Radio, ArrowDownLeft, ArrowUpRight } from 'lucide-react';
+import { Network, Radio, ArrowDownLeft, ArrowUpRight, PanelLeftClose } from 'lucide-react';
 
 interface ConnectionsSidebarProps {
   selectedConnectionId: string | null;
   onSelectConnection: (id: string | null) => void;
+  onToggleCollapse?: () => void;
 }
 
 export const ConnectionsSidebar: React.FC<ConnectionsSidebarProps> = ({
   selectedConnectionId,
   onSelectConnection,
+  onToggleCollapse,
 }) => {
   const connections = useWSStore((s) => s.connections);
   const totalFrameCount = useWSStore((s) => s.frames.length);
@@ -31,6 +33,15 @@ export const ConnectionsSidebar: React.FC<ConnectionsSidebarProps> = ({
           <Network className="w-3 h-3 text-[#38bdf8]" />
           Connections ({connList.length})
         </span>
+        {onToggleCollapse && (
+          <button
+            onClick={onToggleCollapse}
+            className="p-0.5 text-[#777777] hover:text-white hover:bg-[#333333] rounded transition-colors"
+            title="Collapse Connections Sidebar (Shortcut: [ )"
+          >
+            <PanelLeftClose className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-1.5 space-y-1">

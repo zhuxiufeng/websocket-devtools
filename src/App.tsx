@@ -7,12 +7,58 @@ import { TelemetryTracker } from './components/TelemetryTracker';
 import { CommandConsole } from './components/CommandConsole';
 import { useWSStore } from './store/ws-store';
 import { useBridge } from './hooks/useBridge';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
   const [showTelemetry, setShowTelemetry] = useState(true);
-  const [inspectorWidth, setInspectorWidth] = useState<number>(480);
+  const [inspectorWidth, setInspectorWidth] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('ws_inspector_width');
+      return saved ? Math.max(280, Number(saved)) : 480;
+    } catch {
+      return 480;
+    }
+  });
   const [isResizingInspector, setIsResizingInspector] = useState(false);
+
+  // Left sidebar & Right details panel collapsible state (persisted in localStorage)
+  const [showLeftSidebar, setShowLeftSidebar] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('ws_show_left_sidebar');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const [showRightPanel, setShowRightPanel] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('ws_show_right_panel');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  // Persist layout states
+  useEffect(() => {
+    try {
+      localStorage.setItem('ws_show_left_sidebar', String(showLeftSidebar));
+    } catch {}
+  }, [showLeftSidebar]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('ws_show_right_panel', String(showRightPanel));
+    } catch {}
+  }, [showRightPanel]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('ws_inspector_width', String(inspectorWidth));
+    } catch {}
+  }, [inspectorWidth]);
 
   // Initialize data stream bridge
   useBridge();
@@ -56,8 +102,18 @@ export const App: React.FC = () => {
       // Do not intercept hotkeys when actively typing in an input
       if (isInput) return;
 
+      // [ : Toggle Left Sidebar
+      if (e.key === '[') {
+        e.preventDefault();
+        setShowLeftSidebar((prev) => !prev);
+      }
+      // ] : Toggle Right Details Panel
+      else if (e.key === ']') {
+        e.preventDefault();
+        setShowRightPanel((prev) => !prev);
+      }
       // Down / J: next frame
-      if (e.key === 'ArrowDown' || e.key === 'j') {
+      else if (e.key === 'ArrowDown' || e.key === 'j') {
         e.preventDefault();
         useWSStore.getState().selectAdjacentFrame(1);
       }
@@ -107,16 +163,44 @@ export const App: React.FC = () => {
       {/* Top Toolbar */}
       <Toolbar
         showTelemetry={showTelemetry}
-        onToggleTelemetry={() => setShowTelemetry(!showTelemetry)}
+        onToggleTelemetry={() => {
+          if (!showRightPanel) {
+            setShowRightPanel(true);
+            setShowTelemetry(true);
+          } else {
+            setShowTelemetry(!showTelemetry);
+          }
+        }}
+        showLeftSidebar={showLeftSidebar}
+        onToggleLeftSidebar={() => setShowLeftSidebar(!showLeftSidebar)}
+        showRightPanel={showRightPanel}
+        onToggleRightPanel={() => setShowRightPanel(!showRightPanel)}
       />
 
       {/* Main 3-Pane Body */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* Left Pane: Connections */}
-        <ConnectionsSidebar
-          selectedConnectionId={selectedConnectionId}
-          onSelectConnection={setSelectedConnectionId}
-        />
+      <div className="flex-1 flex min-h-0 overflow-hidden relative">
+        {/* Left Pane: Connections Sidebar or Collapsed Toggle Strip */}
+        {showLeftSidebar ? (
+          <ConnectionsSidebar
+            selectedConnectionId={selectedConnectionId}
+            onSelectConnection={setSelectedConnectionId}
+            onToggleCollapse={() => setShowLeftSidebar(false)}
+          />
+        ) : (
+          <div
+            onClick={() => setShowLeftSidebar(true)}
+            className="w-5 bg-[#252526] hover:bg-[#2d2d2d] border-r border-[#3c3c3c] flex flex-col items-center py-2 cursor-pointer transition-colors group select-none shrink-0"
+            title="Expand Connections Sidebar (Shortcut: [ )"
+          >
+            <ChevronRight className="w-3.5 h-3.5 text-[#777777] group-hover:text-[#38bdf8] mb-2" />
+            <span
+              className="text-[9px] text-[#777777] group-hover:text-[#cccccc] font-semibold uppercase tracking-wider"
+              style={{ writingMode: 'vertical-rl' }}
+            >
+              Streams
+            </span>
+          </div>
+        )}
 
         {/* Middle Pane: Virtualized Frame Stream Table + Command Console */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
@@ -124,23 +208,39 @@ export const App: React.FC = () => {
           <CommandConsole />
         </div>
 
-        {/* Right Pane: JSON Inspector & Telemetry Tracker (Resizable) */}
-        <div
-          style={{ width: `${inspectorWidth}px` }}
-          className="shrink-0 flex flex-col min-h-0 border-l border-[#3c3c3c] bg-[#1e1e1e] relative"
-        >
-          {/* Drag Resize Handle */}
+        {/* Right Pane: JSON Inspector & Telemetry Tracker (Resizable) or Collapsed Strip */}
+        {showRightPanel ? (
           <div
-            onMouseDown={(e) => {
-              e.preventDefault();
-              setIsResizingInspector(true);
-            }}
-            className="absolute -left-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[#38bdf8]/60 z-40 transition-colors"
-            title="Drag to resize Inspector width"
-          />
-          <JsonInspector />
-          {showTelemetry && <TelemetryTracker />}
-        </div>
+            style={{ width: `${inspectorWidth}px` }}
+            className="shrink-0 flex flex-col min-h-0 border-l border-[#3c3c3c] bg-[#1e1e1e] relative"
+          >
+            {/* Drag Resize Handle */}
+            <div
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setIsResizingInspector(true);
+              }}
+              className="absolute -left-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[#38bdf8]/60 z-40 transition-colors"
+              title="Drag to resize Inspector width"
+            />
+            <JsonInspector onClose={() => setShowRightPanel(false)} />
+            {showTelemetry && <TelemetryTracker />}
+          </div>
+        ) : (
+          <div
+            onClick={() => setShowRightPanel(true)}
+            className="w-5 bg-[#252526] hover:bg-[#2d2d2d] border-l border-[#3c3c3c] flex flex-col items-center py-2 cursor-pointer transition-colors group select-none shrink-0"
+            title="Expand Details & JSON Inspector (Shortcut: ] )"
+          >
+            <ChevronLeft className="w-3.5 h-3.5 text-[#777777] group-hover:text-[#38bdf8] mb-2" />
+            <span
+              className="text-[9px] text-[#777777] group-hover:text-[#cccccc] font-semibold uppercase tracking-wider"
+              style={{ writingMode: 'vertical-rl' }}
+            >
+              Details
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -24,6 +24,8 @@ import {
   Check,
   ChevronDown,
   Sliders,
+  PanelLeft,
+  PanelRight,
 } from 'lucide-react';
 import {
   downloadTraceFile,
@@ -38,9 +40,20 @@ import { ExportColumnsModal } from './ExportColumnsModal';
 interface ToolbarProps {
   showTelemetry: boolean;
   onToggleTelemetry: () => void;
+  showLeftSidebar?: boolean;
+  onToggleLeftSidebar?: () => void;
+  showRightPanel?: boolean;
+  onToggleRightPanel?: () => void;
 }
 
-export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemetry }) => {
+export const Toolbar: React.FC<ToolbarProps> = ({
+  showTelemetry,
+  onToggleTelemetry,
+  showLeftSidebar = true,
+  onToggleLeftSidebar,
+  showRightPanel = true,
+  onToggleRightPanel,
+}) => {
   const isRecording = useWSStore((s) => s.isRecording);
   const setIsRecording = useWSStore((s) => s.setIsRecording);
   const clearFrames = useWSStore((s) => s.clearFrames);
@@ -242,6 +255,25 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
       <div className="h-10 px-3 flex items-center justify-between gap-3 border-b border-[#333333]">
         {/* Left: Actions */}
         <div className="flex items-center gap-2">
+          {/* Toggle Connections Sidebar */}
+          {onToggleLeftSidebar && (
+            <button
+              onClick={onToggleLeftSidebar}
+              className={`p-1.5 rounded border transition-colors flex items-center justify-center ${
+                showLeftSidebar
+                  ? 'bg-[#094771] text-white border-[#38bdf8]'
+                  : 'bg-[#2d2d2d] text-[#888888] border-[#444444] hover:text-[#cccccc]'
+              }`}
+              title={
+                showLeftSidebar
+                  ? 'Collapse Connections Sidebar (Shortcut: [ )'
+                  : 'Expand Connections Sidebar (Shortcut: [ )'
+              }
+            >
+              <PanelLeft className="w-3.5 h-3.5" />
+            </button>
+          )}
+
           {/* Record / Pause */}
           <button
             onClick={() => setIsRecording(!isRecording)}
@@ -658,10 +690,31 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
                 ? 'bg-[#094771] text-white border-[#38bdf8]'
                 : 'bg-[#2d2d2d] text-[#888888] border-[#444444] hover:text-[#cccccc]'
             }`}
+            title="Toggle Visual Telemetry Graph"
           >
             <Activity className="w-3.5 h-3.5" />
             <span>Visual Tracker</span>
           </button>
+
+          {/* Toggle Inspector / Details Panel */}
+          {onToggleRightPanel && (
+            <button
+              onClick={onToggleRightPanel}
+              className={`px-2 py-1 rounded flex items-center gap-1 text-[11px] transition-colors border ${
+                showRightPanel
+                  ? 'bg-[#094771] text-white border-[#38bdf8]'
+                  : 'bg-[#2d2d2d] text-[#888888] border-[#444444] hover:text-[#cccccc]'
+              }`}
+              title={
+                showRightPanel
+                  ? 'Collapse Details & JSON Inspector (Shortcut: ] )'
+                  : 'Expand Details & JSON Inspector (Shortcut: ] )'
+              }
+            >
+              <PanelRight className="w-3.5 h-3.5" />
+              <span>Details</span>
+            </button>
+          )}
         </div>
       </div>
 
