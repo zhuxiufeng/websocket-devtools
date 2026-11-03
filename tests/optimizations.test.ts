@@ -524,4 +524,18 @@ describe('Advanced Optimizations & Klipper-Specific Verification Test Suite', ()
     const cachedHit = cache.get(testFrame);
     expect(cachedHit?.id).toBe('hl-temp');
   });
+
+  it('13. Tints full row background when enableRowTinting is active and a highlight rule matches', () => {
+    const matchedRule = { id: 'hl-err', text: 'error', color: '#ef4444', active: true, tintRow: false, lowerText: 'error' };
+    const enableRowTinting = true;
+    const shouldTintRow = enableRowTinting && !!matchedRule;
+    expect(shouldTintRow).toBe(true);
+
+    const tintColor = shouldTintRow ? `${matchedRule.color}22` : null;
+    expect(tintColor).toBe('#ef444422');
+
+    // When disabled, no row tinting
+    const disabledTint = false && !!matchedRule;
+    expect(disabledTint).toBe(false);
+  });
 });

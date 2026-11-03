@@ -40,7 +40,7 @@ const FrameRow = React.memo<FrameRowProps>(({
   onJumpToPeer,
 }) => {
   const highlightColor = matchedRule?.color || null;
-  const shouldTintRow = enableRowTinting && !!matchedRule?.tintRow;
+  const shouldTintRow = enableRowTinting && !!matchedRule;
 
   return (
     <div
