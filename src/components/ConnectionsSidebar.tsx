@@ -17,7 +17,12 @@ export const ConnectionsSidebar: React.FC<ConnectionsSidebarProps> = ({
   const connList = Object.values(connections);
   const totalHistoricalMsgs = connList.reduce((acc, c) => acc + c.frameCount, 0);
 
-  const formattedCap = maxFrames >= 1000 ? `${maxFrames / 1000}k` : `${maxFrames}`;
+  const formattedCap =
+    maxFrames >= 1000000
+      ? `${(maxFrames / 1000000).toFixed(maxFrames % 1000000 === 0 ? 0 : 1)}M`
+      : maxFrames >= 1000
+      ? `${maxFrames / 1000}k`
+      : `${maxFrames}`;
 
   return (
     <div className="w-52 bg-[#252526] border-r border-[#3c3c3c] flex flex-col select-none text-xs shrink-0">

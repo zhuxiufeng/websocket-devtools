@@ -121,7 +121,7 @@ export const useWSStore = create<WSStoreState>()(
       mockSpeed: '20Hz',
       maxFrames: 10000,
       setMaxFrames: (limit: number) => {
-        const validLimit = Math.max(1000, Math.min(200000, limit));
+        const validLimit = Math.max(1000, Math.min(1000000, limit));
         const frames = get().frames;
         if (frames.length > validLimit) {
           const dropCount = frames.length - validLimit;

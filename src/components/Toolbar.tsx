@@ -212,6 +212,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({ showTelemetry, onToggleTelemet
               <option value={20000} className="bg-[#252526] text-[#cccccc]">20k</option>
               <option value={50000} className="bg-[#252526] text-[#cccccc]">50k</option>
               <option value={100000} className="bg-[#252526] text-[#cccccc]">100k</option>
+              <option value={200000} className="bg-[#252526] text-[#cccccc]">200k</option>
+              <option value={500000} className="bg-[#252526] text-[#cccccc]">500k</option>
+              <option value={1000000} className="bg-[#252526] text-[#cccccc]">1M (Max)</option>
             </select>
           </div>
 

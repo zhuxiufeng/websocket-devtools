@@ -362,5 +362,26 @@ describe('Comprehensive Self-Test & Edge Case Audit Suite', () => {
     expect(processed[2].deltaMs).toBe(50); // conn-A: 1050 - 1000 = 50ms
     expect(processed[3].deltaMs).toBe(100); // conn-B: 1120 - 1020 = 100ms
   });
+
+  it('11. Buffer capacity supports expanded limits up to 1,000,000 frames', () => {
+    const store = useWSStore.getState();
+
+    store.setMaxFrames(200000);
+    expect(useWSStore.getState().maxFrames).toBe(200000);
+
+    store.setMaxFrames(500000);
+    expect(useWSStore.getState().maxFrames).toBe(500000);
+
+    store.setMaxFrames(1000000);
+    expect(useWSStore.getState().maxFrames).toBe(1000000);
+
+    // Ensure it caps at 1,000,000
+    store.setMaxFrames(2000000);
+    expect(useWSStore.getState().maxFrames).toBe(1000000);
+
+    // Reset back to default
+    store.setMaxFrames(10000);
+    expect(useWSStore.getState().maxFrames).toBe(10000);
+  });
 });
 
