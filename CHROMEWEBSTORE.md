@@ -104,9 +104,10 @@ https://github.com/zhuxiufeng/websocket-devtools/blob/main/PRIVACY.md
 
 ## Version History
 
-### 1.0.17 (Current Release)
-- **Policy Compliance**: Removed unused `tabs` permission from manifest to strictly comply with Chrome Web Store least privilege policy (resolving rejection: Purple Potassium).
-- **Zero Functionality Impact**: All stream interception, active state synchronization, and panel routing continue to work without any degradation.
+### 1.0.19 (Current Release)
+- **Policy Compliance (v1.0.17)**: Removed unused `tabs` permission from manifest in strict compliance with Chrome Web Store least privilege policy (resolving rejection: Purple Potassium).
+- **Auto-Scroll Performance & Reliability (v1.0.18)**: Fixed table auto-scroll stutter, state desync deadlock, and stale scroll request loops during high-speed frame streaming; accurately distinguished intentional upward history scrolling from incoming frame updates.
+- **Page Reload Optimization (v1.0.19)**: Eliminated DevTools evaluation queue deadlock on navigation; replaced blocking eval calls with non-blocking native runtime messaging and added instant UI reload feedback.
 
 ### 1.0.16
 - **Navigation Controls**: Moved "Jump to First" and "Latest" navigation buttons to the top Toolbar to completely prevent any data cell obstruction in high-density tables.
@@ -122,5 +123,5 @@ https://github.com/zhuxiufeng/websocket-devtools/blob/main/PRIVACY.md
 
 | Date | Ref ID | Reason | Fix Applied | Status |
 |---|---|---|---|---|
-| 2026-11-04 | Purple Potassium | Requesting but not using `tabs` permission | Removed `tabs` from manifest permissions; verified `chrome.tabs.sendMessage`, `chrome.tabs.onRemoved`, and DevTools inspectedWindow require no permissions | Rectified in v1.0.17 |
+| 2026-11-04 | Purple Potassium | Requesting but not using `tabs` permission | Removed `tabs` from manifest permissions; verified `chrome.tabs.sendMessage`, `chrome.tabs.onRemoved`, and DevTools inspectedWindow require no permissions | Rectified in v1.0.19 (Ready for submission) |
 
