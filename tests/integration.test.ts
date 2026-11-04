@@ -181,4 +181,78 @@ describe('DevTools Full Integration & Verification Test Suite', () => {
     expect(useWSStore.getState().isAutoScrollPaused).toBe(false);
     expect(useWSStore.getState().lastScrollRequest?.target).toBe('latest');
   });
+
+  it('7. syncConnections synchronizes active connections and deduplicates historical frame replay', () => {
+    const store = useWSStore.getState();
+
+    // 1. Sync connection before any frame arrives
+    store.syncConnections([
+      {
+        id: 'ws://192.168.1.50/websocket',
+        url: 'ws://192.168.1.50/websocket',
+        status: 'open',
+        frameCount: 0,
+        inCount: 0,
+        outCount: 0,
+        startTime: Date.now(),
+      },
+    ]);
+
+    const conns = useWSStore.getState().connections;
+    expect(conns['ws://192.168.1.50/websocket']).toBeDefined();
+    expect(conns['ws://192.168.1.50/websocket'].status).toBe('open');
+
+    // 2. Ingest frames with predefined id
+    store.addFramesBatch([
+      {
+        id: 'frame-test-101',
+        connectionId: 'ws://192.168.1.50/websocket',
+        payload: '{"method":"printer.info"}',
+        direction: 'out',
+        timestamp: 1000,
+      },
+      {
+        id: 'frame-test-102',
+        connectionId: 'ws://192.168.1.50/websocket',
+        payload: '{"result":{"state":"ready"}}',
+        direction: 'in',
+        timestamp: 1020,
+      },
+    ]);
+
+    expect(useWSStore.getState().frames.length).toBe(2);
+
+    // 3. Replay sync with same IDs (historical sync on late attach)
+    store.addFramesBatch([
+      {
+        id: 'frame-test-101',
+        connectionId: 'ws://192.168.1.50/websocket',
+        payload: '{"method":"printer.info"}',
+        direction: 'out',
+        timestamp: 1000,
+      },
+      {
+        id: 'frame-test-102',
+        connectionId: 'ws://192.168.1.50/websocket',
+        payload: '{"result":{"state":"ready"}}',
+        direction: 'in',
+        timestamp: 1020,
+      },
+      {
+        id: 'frame-test-103',
+        connectionId: 'ws://192.168.1.50/websocket',
+        payload: '{"method":"printer.objects.query"}',
+        direction: 'out',
+        timestamp: 1050,
+      },
+    ]);
+
+    // Should only add the new frame (total 3, not 5!)
+    expect(useWSStore.getState().frames.length).toBe(3);
+    expect(useWSStore.getState().frames.map((f) => f.id)).toEqual([
+      'frame-test-101',
+      'frame-test-102',
+      'frame-test-103',
+    ]);
+  });
 });

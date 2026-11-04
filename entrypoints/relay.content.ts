@@ -12,28 +12,6 @@ export default defineContentScript({
     const MAX_QUEUE_SIZE = 1000;
     const BATCH_FLUSH_THRESHOLD = 20;
 
-    function flushNow() {
-      if (flushTimer) {
-        clearTimeout(flushTimer);
-        flushTimer = null;
-      }
-      if (pendingEvents.length === 0) return;
-
-      if (!port) {
-        connectPort();
-      }
-
-      if (port) {
-        try {
-          const batch = pendingEvents;
-          pendingEvents = [];
-          port.postMessage({ type: 'EVENTS_BATCH', events: batch });
-        } catch {
-          port = null;
-        }
-      }
-    }
-
     function connectPort() {
       if (port) return;
       try {
@@ -61,6 +39,28 @@ export default defineContentScript({
       }
     }
 
+    function flushNow() {
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      if (pendingEvents.length === 0) return;
+
+      if (!port) {
+        connectPort();
+      }
+
+      if (port) {
+        try {
+          const batch = pendingEvents;
+          pendingEvents = [];
+          port.postMessage({ type: 'EVENTS_BATCH', events: batch });
+        } catch {
+          port = null;
+        }
+      }
+    }
+
     function queueEvent(eventDetail: any) {
       pendingEvents.push(eventDetail);
 
@@ -69,7 +69,7 @@ export default defineContentScript({
         pendingEvents.splice(0, pendingEvents.length - MAX_QUEUE_SIZE);
       }
 
-      // Fast-flush for bursts, or batch into 16ms animation frame intervals
+      // Fast-flush for bursts, or batch into 16ms intervals
       if (pendingEvents.length >= BATCH_FLUSH_THRESHOLD) {
         flushNow();
       } else if (!flushTimer) {
@@ -77,12 +77,30 @@ export default defineContentScript({
       }
     }
 
-    // Lazy listen: Do not connectPort() upfront. Only connect when first WS event arrives!
+    // Listen to messages from ws-hook in MAIN world
     window.addEventListener('message', (event) => {
       if (event.source !== window || !event.data?.__ws_telemetry__) return;
-      if (event.data.type !== 'SEND_DATA') {
+
+      if (event.data.type === 'BUFFERED_FRAMES_SYNC' && Array.isArray(event.data.frames)) {
+        for (const frame of event.data.frames) {
+          queueEvent({ type: 'FRAME', frame });
+        }
+        flushNow();
+      } else if (event.data.type !== 'SEND_DATA' && event.data.type !== 'QUERY_ACTIVE_STATE') {
         queueEvent(event.data);
       }
     });
+
+    // Listen to query requests from background service worker
+    chrome.runtime.onMessage?.addListener((msg, _sender, sendResponse) => {
+      if (msg.type === 'QUERY_ACTIVE_STATE') {
+        connectPort();
+        window.postMessage({ __ws_telemetry__: true, type: 'QUERY_ACTIVE_STATE' }, '*');
+        sendResponse?.({ status: 'ok' });
+      }
+    });
+
+    // Proactively connect to service worker
+    connectPort();
   },
 });

@@ -44,6 +44,7 @@ interface WSStoreState {
 
   // Frame actions
   addFramesBatch: (newFrames: Partial<WSFrame>[]) => void;
+  syncConnections: (connections: WSConnection[]) => void;
   clearFrames: () => void;
   setSelectedFrameId: (id: string | null) => void;
   jumpToFrameId: (id: string) => void;
@@ -244,6 +245,20 @@ export const useWSStore = create<WSStoreState>()(
         set({
           selectedFrameId: id,
           followLatestInspector: false,
+        });
+      },
+
+      syncConnections: (incoming) => {
+        if (!incoming || incoming.length === 0) return;
+        set((state) => {
+          const next = { ...state.connections };
+          for (const c of incoming) {
+            next[c.id] = {
+              ...(next[c.id] || {}),
+              ...c,
+            };
+          }
+          return { connections: next };
         });
       },
 

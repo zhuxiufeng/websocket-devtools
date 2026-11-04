@@ -6,7 +6,7 @@ import { IncrementalFilterEngine } from '../core/incremental-filter';
 import { extractFrameField, formatExtractedValue } from '../core/field-extractor';
 import { highlightText } from '../utils/highlighter';
 import { formatColumnHeader } from '../utils/path-helper';
-import { ArrowDownLeft, ArrowUpRight, X, ExternalLink, ArrowDown, ArrowUp, Download, Copy, Check } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, X, ExternalLink, ArrowDown, ArrowUp, Download, Copy, Check, RotateCw } from 'lucide-react';
 import type { WSFrame, HighlightRule, CustomColumn } from '../types/websocket';
 import { exportSingleColumnCsv, downloadCsvFile } from '../core/trace-io';
 
@@ -222,6 +222,7 @@ const FrameRow = React.memo<FrameRowProps>(({
 
 export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) => {
   const frames = useWSStore((s) => s.frames);
+  const connections = useWSStore((s) => s.connections);
   const selectedFrameId = useWSStore((s) => s.selectedFrameId);
   const setSelectedFrameId = useWSStore((s) => s.setSelectedFrameId);
   const jumpToFrameId = useWSStore((s) => s.jumpToFrameId);
@@ -581,8 +582,32 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
         className="flex-1 overflow-auto font-mono text-[11px] relative"
       >
         {filteredFrames.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-xs text-[#666666]">
-            {frames.length === 0 ? 'Waiting for WebSocket frames...' : 'No frames match current filter.'}
+          <div className="h-full flex flex-col items-center justify-center text-xs text-[#888888] gap-2.5 p-4 select-none">
+            {frames.length === 0 ? (
+              <>
+                <p className="text-[#888888]">
+                  {Object.keys(connections).length > 0
+                    ? `WebSocket connected (${Object.keys(connections).length} stream). Waiting for incoming frames...`
+                    : 'Waiting for WebSocket traffic...'}
+                </p>
+                {typeof chrome !== 'undefined' && Boolean(chrome.devtools?.inspectedWindow) && (
+                  <button
+                    onClick={() => {
+                      try {
+                        chrome.devtools.inspectedWindow.reload({ ignoreCache: false });
+                      } catch {}
+                    }}
+                    className="px-3 py-1 bg-[#252526] hover:bg-[#2d2d2d] text-[#aaaaaa] hover:text-[#38bdf8] rounded border border-[#3c3c3c] text-[11px] transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+                    title="Reload inspected webpage to capture initial connection frames"
+                  >
+                    <RotateCw className="w-3 h-3" />
+                    <span>Reload Inspected Page</span>
+                  </button>
+                )}
+              </>
+            ) : (
+              'No frames match current filter.'
+            )}
           </div>
         ) : (
           <div

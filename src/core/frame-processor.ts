@@ -145,6 +145,9 @@ export class FrameProcessor {
     const processed: WSFrame[] = [];
 
     for (const raw of rawFrames) {
+      if (raw.id && existingFramesMap && existingFramesMap.has(raw.id)) {
+        continue;
+      }
       const seq = raw.seq ?? this.ctx.nextSeq++;
       const id = raw.id || `frame-${seq}`;
       const connId = raw.connectionId || 'default-ws';
