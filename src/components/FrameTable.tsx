@@ -247,7 +247,6 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
   // Column resizing state
   const [resizingCol, setResizingCol] = useState<{ id: string; startX: number; startWidth: number } | null>(null);
   const [copiedColId, setCopiedColId] = useState<string | null>(null);
-  const [showScrollToTop, setShowScrollToTop] = useState(false);
 
   // Incremental filter engine instance
   const filterEngineRef = useRef<IncrementalFilterEngine | null>(null);
@@ -407,7 +406,6 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
     }
     const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     shouldAutoScrollRef.current = isAtBottom;
-    setShowScrollToTop(el.scrollTop > 250);
 
     if (!isAtBottom) {
       if (!isAutoScrollPaused) {
@@ -431,7 +429,6 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
     if (containerRef.current) {
       containerRef.current.scrollTop = 0;
     }
-    setShowScrollToTop(false);
   }, [filteredFrames, rowVirtualizer, setIsAutoScrollPaused, setSelectedFrameId]);
 
   const scrollToBottom = () => {
@@ -463,18 +460,6 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
 
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-[#1e1e1e] border-r border-[#3c3c3c] overflow-hidden select-none relative">
-      {/* Floating Jump to First Notification Pill */}
-      {showScrollToTop && filteredFrames.length > 0 && (
-        <button
-          onClick={scrollToTop}
-          className="absolute top-9 left-1/2 -translate-x-1/2 z-30 bg-[#252526]/95 hover:bg-[#2d2d2d] text-[#cccccc] hover:text-[#38bdf8] px-3 py-1 rounded-full text-[11px] font-medium shadow-2xl flex items-center gap-1.5 transition-all cursor-pointer border border-[#444444] backdrop-blur-sm"
-          title="Jump to first frame (Shortcut: Home)"
-        >
-          <ArrowUp className="w-3.5 h-3.5 text-[#38bdf8]" />
-          <span>Jump to First (#1)</span>
-        </button>
-      )}
-
       {/* Floating Unseen Frames Notification Pill */}
       {unseenNewFramesCount > 0 && (
         <button

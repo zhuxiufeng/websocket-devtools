@@ -26,6 +26,8 @@ import {
   Sliders,
   PanelLeft,
   PanelRight,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import {
   downloadTraceFile,
@@ -57,6 +59,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const isRecording = useWSStore((s) => s.isRecording);
   const setIsRecording = useWSStore((s) => s.setIsRecording);
   const clearFrames = useWSStore((s) => s.clearFrames);
+  const jumpToFirstFrame = useWSStore((s) => s.jumpToFirstFrame);
+  const jumpToLatestFrame = useWSStore((s) => s.jumpToLatestFrame);
   const filterQuery = useWSStore((s) => s.filterQuery);
   const setFilterQuery = useWSStore((s) => s.setFilterQuery);
   const filterPresets = useWSStore((s) => s.filterPresets);
@@ -306,6 +310,26 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
+
+          {/* Navigation Controls: Jump to First / Latest Frame */}
+          <div className="flex items-center rounded border border-[#444444] bg-[#252526] overflow-hidden">
+            <button
+              onClick={jumpToFirstFrame}
+              className="px-2 py-1 hover:bg-[#333333] text-[#aaaaaa] hover:text-[#38bdf8] flex items-center gap-1 text-[11px] transition-colors border-r border-[#3c3c3c]"
+              title="Jump to first frame (Shortcut: Home)"
+            >
+              <ArrowUp className="w-3 h-3 text-[#38bdf8]" />
+              <span>First</span>
+            </button>
+            <button
+              onClick={jumpToLatestFrame}
+              className="px-2 py-1 hover:bg-[#333333] text-[#aaaaaa] hover:text-[#38bdf8] flex items-center gap-1 text-[11px] transition-colors"
+              title="Jump to latest frame (Shortcut: End)"
+            >
+              <ArrowDown className="w-3 h-3 text-[#38bdf8]" />
+              <span>Latest</span>
+            </button>
+          </div>
 
           {/* Export Dropdown Menu */}
           <div className="relative">
