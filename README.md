@@ -91,8 +91,7 @@ The ready-to-upload extension zip file will be generated at:
 
 - **100% Offline Local Processing**: All frame interception, parsing, JSON extraction, and telemetry charting happen locally inside your browser. No data is collected, stored remotely, or transmitted to any external server.
 - **Minimal Permissions**:
-  - `tabs`: Route traffic exclusively to the matching active DevTools tab.
-  - `storage`: Persist your UI preferences, column widths, and favorite filters locally.
+  - `storage`: Persist your UI preferences, column widths, favorite filters, and session stream buffers locally.
 
 Read the full [Privacy Policy](PRIVACY.md).
 

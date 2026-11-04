@@ -1,7 +1,7 @@
 # Chrome Web Store Listing — WS Telemetry Analyzer
 
 > Last Updated: 2026-11-04  
-> Current Version: 1.0.16
+> Current Version: 1.0.17
 
 ## Store Listing
 
@@ -63,8 +63,7 @@ English
 
 | Permission | Type | Justification |
 |---|---|---|
-| `tabs` | permissions | Allows the DevTools extension to identify the currently inspected browser tab ID so WebSocket messages are routed exclusively to the matching DevTools panel instance. |
-| `storage` | permissions | Saves user configuration preferences locally on the client (such as custom table columns, highlight rules, telemetry chart series, and buffer limits) and maintains recent stream state across background service worker suspensions. |
+| `storage` | permissions | Saves user configuration preferences locally on the client (such as custom table columns, highlight rules, telemetry chart series, and buffer limits) and maintains recent stream state across background service worker suspensions via chrome.storage.session. |
 | `<all_urls>` | content_scripts | Injects an in-page WebSocket hook into the webpage being inspected in DevTools so WebSocket frames can be captured and visualized without using the disruptive chrome.debugger warning bar. |
 
 ---
@@ -105,10 +104,23 @@ https://github.com/zhuxiufeng/websocket-devtools/blob/main/PRIVACY.md
 
 ## Version History
 
-### 1.0.16 (Current Release)
+### 1.0.17 (Current Release)
+- **Policy Compliance**: Removed unused `tabs` permission from manifest to strictly comply with Chrome Web Store least privilege policy (resolving rejection: Purple Potassium).
+- **Zero Functionality Impact**: All stream interception, active state synchronization, and panel routing continue to work without any degradation.
+
+### 1.0.16
 - **Navigation Controls**: Moved "Jump to First" and "Latest" navigation buttons to the top Toolbar to completely prevent any data cell obstruction in high-density tables.
 - **Late DevTools Open Sync**: Implemented in-page ring buffering (500 frames) and active WebSocket query synchronization (`QUERY_ACTIVE_STATE`) so DevTools displays live connections and data immediately without requiring page reloads.
 - **Session Persistence**: Backed background buffers with `chrome.storage.session` to protect against Manifest V3 Service Worker terminations.
 - **Unfocused Stream Ingestion**: Replaced requestAnimationFrame with setTimeout throttled batching in stream ingestion to prevent Chrome from pausing traffic when DevTools is unfocused.
 - **Sidebar Collapsing**: Added hotkeys `[` and `]` to toggle left connections and right inspector sidebars.
 - **Row Tinting**: Enabled row tinting by default for matched highlight rules.
+
+---
+
+## Review Notes & Rejection History
+
+| Date | Ref ID | Reason | Fix Applied | Status |
+|---|---|---|---|---|
+| 2026-11-04 | Purple Potassium | Requesting but not using `tabs` permission | Removed `tabs` from manifest permissions; verified `chrome.tabs.sendMessage`, `chrome.tabs.onRemoved`, and DevTools inspectedWindow require no permissions | Rectified in v1.0.17 |
+

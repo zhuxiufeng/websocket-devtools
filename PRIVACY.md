@@ -14,8 +14,7 @@ We respect your privacy. This Privacy Policy explains our practices regarding us
 
 ## 3. Chrome Permissions
 The Extension requires the following permissions strictly for its declared developer tool functionality:
-- `tabs`: Used solely to identify the active tab ID currently open in DevTools so WebSocket frames can be routed to the matching DevTools panel instance.
-- `storage`: Used solely to persist local user UI preferences (such as custom column definitions, highlight rules, and favorite filter queries) on the user's local machine via `chrome.storage.local`.
+- `storage`: Used solely to persist local user UI preferences (such as custom column definitions, highlight rules, and favorite filter queries) on the user's local machine via `chrome.storage.local`, as well as session buffer persistence via `chrome.storage.session`.
 - `content_scripts (<all_urls>)`: Required to inject an in-page WebSocket hook into the webpage being inspected so frames can be relayed to the DevTools panel without using the intrusive `chrome.debugger` API.
 
 ## 4. Third-Party Services
