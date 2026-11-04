@@ -255,4 +255,43 @@ describe('DevTools Full Integration & Verification Test Suite', () => {
       'frame-test-103',
     ]);
   });
+
+  it('8. Auto-scroll pause, resume, and unseen count tracking on streaming incoming frames', () => {
+    const store = useWSStore.getState();
+    store.clearFrames();
+    store.setIsAutoScrollPaused(false);
+
+    // Initial frames stream in while auto-scroll is active
+    store.addFramesBatch([
+      { id: 'f-stream-1', payload: '{"seq":1}', timestamp: 1000 },
+      { id: 'f-stream-2', payload: '{"seq":2}', timestamp: 1010 },
+    ]);
+    expect(useWSStore.getState().isAutoScrollPaused).toBe(false);
+    expect(useWSStore.getState().unseenNewFramesCount).toBe(0);
+
+    // User scrolls up or jumps to first frame -> auto-scroll pauses
+    store.setIsAutoScrollPaused(true);
+    expect(useWSStore.getState().isAutoScrollPaused).toBe(true);
+
+    // Frames continue streaming in while paused
+    store.addFramesBatch([
+      { id: 'f-stream-3', payload: '{"seq":3}', timestamp: 1020 },
+      { id: 'f-stream-4', payload: '{"seq":4}', timestamp: 1030 },
+      { id: 'f-stream-5', payload: '{"seq":5}', timestamp: 1040 },
+    ]);
+    expect(useWSStore.getState().unseenNewFramesCount).toBe(3);
+
+    // User jumps to latest frame -> auto-scroll resumes and unseen count resets
+    store.jumpToLatestFrame();
+    expect(useWSStore.getState().isAutoScrollPaused).toBe(false);
+    expect(useWSStore.getState().unseenNewFramesCount).toBe(0);
+    expect(useWSStore.getState().lastScrollRequest?.target).toBe('latest');
+    expect(useWSStore.getState().selectedFrameId).toBe('f-stream-5');
+
+    // New frames now do not increase unseen count
+    store.addFramesBatch([
+      { id: 'f-stream-6', payload: '{"seq":6}', timestamp: 1050 },
+    ]);
+    expect(useWSStore.getState().unseenNewFramesCount).toBe(0);
+  });
 });

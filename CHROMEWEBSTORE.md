@@ -1,7 +1,7 @@
 # Chrome Web Store Listing — WS Telemetry Analyzer
 
 > Last Updated: 2026-11-04  
-> Current Version: 1.0.17
+> Current Version: 1.0.18
 
 ## Store Listing
 

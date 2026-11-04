@@ -242,7 +242,8 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
 
   const containerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
-  const shouldAutoScrollRef = useRef(true);
+  const prevScrollTopRef = useRef<number>(0);
+  const handledScrollTimestampRef = useRef<number>(lastScrollRequest?.timestamp ?? 0);
 
   // Column resizing state
   const [resizingCol, setResizingCol] = useState<{ id: string; startX: number; startWidth: number } | null>(null);
@@ -335,10 +336,13 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
 
   // Auto-scroll on new frames when not paused (depends on latestFrameId so it continues to auto-scroll even after reaching MAX_FRAMES cap)
   useEffect(() => {
-    if (!isAutoScrollPaused && shouldAutoScrollRef.current && containerRef.current && filteredFrames.length > 0) {
+    if (!isAutoScrollPaused && containerRef.current && filteredFrames.length > 0) {
       rowVirtualizer.scrollToIndex(filteredFrames.length - 1, { align: 'end' });
+      // Direct DOM scroll pinning ensures 100% reliable pinning to bottom
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+      prevScrollTopRef.current = containerRef.current.scrollTop;
     }
-  }, [latestFrameId, rowVirtualizer, isAutoScrollPaused]);
+  }, [latestFrameId, rowVirtualizer, isAutoScrollPaused, filteredFrames.length]);
 
   // Keep selected frame visible in virtualizer ONLY when user actively changes selection
   const prevSelectedFrameIdRef = useRef<string | null>(null);
@@ -383,20 +387,32 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
 
   // Scroll to target from store action (jumpToFirstFrame / jumpToLatestFrame)
   useEffect(() => {
-    if (!lastScrollRequest) return;
+    if (!lastScrollRequest || lastScrollRequest.timestamp <= handledScrollTimestampRef.current) {
+      return;
+    }
+    handledScrollTimestampRef.current = lastScrollRequest.timestamp;
+
     if (lastScrollRequest.target === 'first') {
+      setIsAutoScrollPaused(true);
       if (filteredFrames.length > 0) {
         rowVirtualizer.scrollToIndex(0, { align: 'start' });
         if (containerRef.current) {
           containerRef.current.scrollTop = 0;
+          prevScrollTopRef.current = 0;
         }
       }
     } else if (lastScrollRequest.target === 'latest') {
+      setIsAutoScrollPaused(false);
+      resetUnseenCount();
       if (filteredFrames.length > 0) {
         rowVirtualizer.scrollToIndex(filteredFrames.length - 1, { align: 'end' });
+        if (containerRef.current) {
+          containerRef.current.scrollTop = containerRef.current.scrollHeight;
+          prevScrollTopRef.current = containerRef.current.scrollTop;
+        }
       }
     }
-  }, [lastScrollRequest, filteredFrames, rowVirtualizer]);
+  }, [lastScrollRequest, filteredFrames, rowVirtualizer, setIsAutoScrollPaused, resetUnseenCount]);
 
   // Synchronize horizontal scrolling between header and virtual rows & detect user scroll
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -404,14 +420,23 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
     if (headerRef.current) {
       headerRef.current.scrollLeft = el.scrollLeft;
     }
-    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-    shouldAutoScrollRef.current = isAtBottom;
 
-    if (!isAtBottom) {
+    const currentScrollTop = el.scrollTop;
+    const prevScrollTop = prevScrollTopRef.current;
+    const scrollDelta = currentScrollTop - prevScrollTop;
+    prevScrollTopRef.current = currentScrollTop;
+
+    // Check if container is near bottom (within 80px buffer)
+    const isAtBottom = el.scrollHeight - currentScrollTop - el.clientHeight < 80;
+
+    // Detect intentional user scroll up (negative scroll delta greater than subpixel jitter)
+    const isScrollingUp = scrollDelta < -4;
+
+    if (isScrollingUp && !isAtBottom) {
       if (!isAutoScrollPaused) {
         setIsAutoScrollPaused(true);
       }
-    } else {
+    } else if (isAtBottom) {
       if (isAutoScrollPaused) {
         setIsAutoScrollPaused(false);
         resetUnseenCount();
@@ -421,24 +446,27 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
 
   const scrollToTop = useCallback(() => {
     setIsAutoScrollPaused(true);
-    shouldAutoScrollRef.current = false;
     if (filteredFrames.length > 0) {
       setSelectedFrameId(filteredFrames[0].id);
       rowVirtualizer.scrollToIndex(0, { align: 'start' });
     }
     if (containerRef.current) {
       containerRef.current.scrollTop = 0;
+      prevScrollTopRef.current = 0;
     }
   }, [filteredFrames, rowVirtualizer, setIsAutoScrollPaused, setSelectedFrameId]);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     setIsAutoScrollPaused(false);
     resetUnseenCount();
-    shouldAutoScrollRef.current = true;
     if (filteredFrames.length > 0) {
       rowVirtualizer.scrollToIndex(filteredFrames.length - 1, { align: 'end' });
+      if (containerRef.current) {
+        containerRef.current.scrollTop = containerRef.current.scrollHeight;
+        prevScrollTopRef.current = containerRef.current.scrollTop;
+      }
     }
-  };
+  }, [filteredFrames, rowVirtualizer, setIsAutoScrollPaused, resetUnseenCount]);
 
   const totalMinWidth = useMemo(() => {
     const baseColsWidth = 56 + 48 + 112 + 64 + 64 + 224; // w-14 (56) + w-12 (48) + w-28 (112) + w-16(Δt 64) + w-16(Len 64) + w-56(Method 224) = 568px
