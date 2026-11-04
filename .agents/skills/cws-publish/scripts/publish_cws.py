@@ -1,0 +1,1 @@
+/home/zxf/workspace/code/agy/chrome_extension/dev_tool/scripts/publish_cws.py
