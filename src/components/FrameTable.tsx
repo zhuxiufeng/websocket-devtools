@@ -248,6 +248,36 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
   // Column resizing state
   const [resizingCol, setResizingCol] = useState<{ id: string; startX: number; startWidth: number } | null>(null);
   const [copiedColId, setCopiedColId] = useState<string | null>(null);
+  const [isReloading, setIsReloading] = useState(false);
+
+  const handleReloadPage = useCallback(() => {
+    if (isReloading || typeof chrome === 'undefined' || !chrome.devtools?.inspectedWindow) return;
+    setIsReloading(true);
+    try {
+      chrome.devtools.inspectedWindow.reload();
+    } catch {
+      setIsReloading(false);
+    }
+  }, [isReloading]);
+
+  useEffect(() => {
+    if (!isReloading) return;
+    const timer = setTimeout(() => setIsReloading(false), 2000);
+    return () => clearTimeout(timer);
+  }, [isReloading]);
+
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.devtools?.network?.onNavigated) return;
+    const onNavigated = () => {
+      setIsReloading(false);
+    };
+    chrome.devtools.network.onNavigated.addListener(onNavigated);
+    return () => {
+      try {
+        chrome.devtools.network.onNavigated.removeListener(onNavigated);
+      } catch {}
+    };
+  }, []);
 
   // Incremental filter engine instance
   const filterEngineRef = useRef<IncrementalFilterEngine | null>(null);
@@ -605,16 +635,15 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
                 </p>
                 {typeof chrome !== 'undefined' && Boolean(chrome.devtools?.inspectedWindow) && (
                   <button
-                    onClick={() => {
-                      try {
-                        chrome.devtools.inspectedWindow.reload({ ignoreCache: false });
-                      } catch {}
-                    }}
-                    className="px-3 py-1 bg-[#252526] hover:bg-[#2d2d2d] text-[#aaaaaa] hover:text-[#38bdf8] rounded border border-[#3c3c3c] text-[11px] transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+                    onClick={handleReloadPage}
+                    disabled={isReloading}
+                    className={`px-3 py-1 bg-[#252526] hover:bg-[#2d2d2d] text-[#aaaaaa] hover:text-[#38bdf8] rounded border border-[#3c3c3c] text-[11px] transition-colors flex items-center gap-1.5 shadow-sm ${
+                      isReloading ? 'opacity-70 cursor-not-allowed text-[#38bdf8]' : 'cursor-pointer'
+                    }`}
                     title="Reload inspected webpage to capture initial connection frames"
                   >
-                    <RotateCw className="w-3 h-3" />
-                    <span>Reload Inspected Page</span>
+                    <RotateCw className={`w-3 h-3 ${isReloading ? 'animate-spin text-[#38bdf8]' : ''}`} />
+                    <span>{isReloading ? 'Reloading Page...' : 'Reload Inspected Page'}</span>
                   </button>
                 )}
               </>

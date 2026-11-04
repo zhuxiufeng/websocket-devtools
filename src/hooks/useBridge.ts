@@ -112,75 +112,6 @@ export function useBridge() {
     let isMounted = true;
     let activePort: chrome.runtime.Port | null = null;
     let reconnectTimer: any = null;
-    let syncFallbackTimer: any = null;
-
-    const requestPageSync = () => {
-      if (typeof chrome === 'undefined' || !chrome.devtools?.inspectedWindow) return;
-      try {
-        chrome.devtools.inspectedWindow.eval<boolean>(
-          `
-          (function() {
-            if (typeof window !== 'undefined') {
-              window.postMessage({ __ws_telemetry__: true, type: 'QUERY_ACTIVE_STATE' }, '*');
-              return Boolean(window.WebSocket && (window.WebSocket as any).__ws_telemetry_hooked__);
-            }
-            return false;
-          })()
-        `,
-          (isHooked: any, exceptionInfo: any) => {
-            if (!isHooked && !exceptionInfo) {
-              // Page was loaded before extension was loaded/enabled.
-              // Dynamically inject the runtime hook now so any new/reconnecting WebSockets are intercepted!
-              chrome.devtools.inspectedWindow.eval(`
-                (function() {
-                  if (typeof window === 'undefined' || !window.WebSocket || window.WebSocket.__ws_telemetry_hooked__) return;
-                  const NativeWebSocket = window.WebSocket;
-                  const WrappedWebSocket = function(url, protocols) {
-                    const ws = protocols !== undefined ? new NativeWebSocket(url, protocols) : new NativeWebSocket(url);
-                    const resolvedUrl = typeof url === 'string' ? url : url.toString();
-                    const startTime = Date.now();
-                    window.postMessage({
-                      __ws_telemetry__: true,
-                      type: 'SOCKET_CREATED',
-                      connection: { id: resolvedUrl, url: resolvedUrl, status: 'open', frameCount: 0, inCount: 0, outCount: 0, startTime }
-                    }, '*');
-                    const origSend = ws.send;
-                    ws.send = function(data) {
-                      try {
-                        const payload = typeof data === 'string' ? data : String(data);
-                        const isJson = payload.charCodeAt(0) === 123 || payload.charCodeAt(0) === 91;
-                        window.postMessage({
-                          __ws_telemetry__: true,
-                          type: 'FRAME',
-                          frame: { connectionId: resolvedUrl, direction: 'out', timestamp: Date.now(), length: payload.length, payload, isJson, isBinary: false }
-                        }, '*');
-                      } catch (e) {}
-                      return origSend.apply(this, arguments);
-                    };
-                    ws.addEventListener('message', function(ev) {
-                      try {
-                        const payload = typeof ev.data === 'string' ? ev.data : String(ev.data);
-                        const isJson = payload.charCodeAt(0) === 123 || payload.charCodeAt(0) === 91;
-                        window.postMessage({
-                          __ws_telemetry__: true,
-                          type: 'FRAME',
-                          frame: { connectionId: resolvedUrl, direction: 'in', timestamp: Date.now(), length: payload.length, payload, isJson, isBinary: false }
-                        }, '*');
-                      } catch (e) {}
-                    });
-                    return ws;
-                  };
-                  WrappedWebSocket.prototype = NativeWebSocket.prototype;
-                  Object.setPrototypeOf(WrappedWebSocket, NativeWebSocket);
-                  WrappedWebSocket.__ws_telemetry_hooked__ = true;
-                  window.WebSocket = WrappedWebSocket;
-                })()
-              `);
-            }
-          }
-        );
-      } catch {}
-    };
 
     const connectBridge = () => {
       if (!isMounted) return;
@@ -193,10 +124,6 @@ export function useBridge() {
           type: 'ATTACH',
           tabId: chrome.devtools.inspectedWindow.tabId,
         });
-
-        // Proactively ask inspected page for active sockets and buffered frames
-        requestPageSync();
-        syncFallbackTimer = setTimeout(requestPageSync, 600);
 
         port.onMessage.addListener((msg) => {
           if (msg.type === 'PING') return;
@@ -226,16 +153,22 @@ export function useBridge() {
 
     connectBridge();
 
-    // Re-query active state when inspected page navigates or refreshes
+    // Re-attach to background when inspected page navigates or refreshes
     const onNavigatedHandler = () => {
-      setTimeout(requestPageSync, 300);
+      if (activePort) {
+        try {
+          activePort.postMessage({
+            type: 'ATTACH',
+            tabId: chrome.devtools.inspectedWindow.tabId,
+          });
+        } catch {}
+      }
     };
     chrome.devtools?.network?.onNavigated?.addListener(onNavigatedHandler);
 
     return () => {
       isMounted = false;
       clearTimeout(reconnectTimer);
-      clearTimeout(syncFallbackTimer);
       if (chrome.devtools?.network?.onNavigated) {
         chrome.devtools.network.onNavigated.removeListener(onNavigatedHandler);
       }
