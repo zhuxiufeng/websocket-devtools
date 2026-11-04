@@ -56,6 +56,8 @@ interface WSStoreState {
   resetUnseenCount: () => void;
   setFollowLatestInspector: (follow: boolean) => void;
   jumpToLatestFrame: () => void;
+  jumpToFirstFrame: () => void;
+  lastScrollRequest: { target: 'first' | 'latest'; timestamp: number } | null;
 
   // Column management
   addCustomColumn: (path: string, name?: string) => void;
@@ -117,6 +119,7 @@ export const useWSStore = create<WSStoreState>()(
       enableCarryForward: true,
       isAutoScrollPaused: false,
       unseenNewFramesCount: 0,
+      lastScrollRequest: null,
       isRecording: true,
       isMockActive: false,
       mockSpeed: '20Hz',
@@ -210,13 +213,30 @@ export const useWSStore = create<WSStoreState>()(
       setFollowLatestInspector: (follow) => set({ followLatestInspector: follow }),
 
       jumpToLatestFrame: () => {
-        const frames = get().frames;
-        if (frames.length > 0) {
-          set({
-            selectedFrameId: frames[frames.length - 1].id,
-            followLatestInspector: false,
-          });
-        }
+        const { frames, filterCriteria } = get();
+        if (frames.length === 0) return;
+        const visibleFrames = filterCriteria ? frames.filter((f) => matchesFilter(f, filterCriteria)) : frames;
+        const targetList = visibleFrames.length > 0 ? visibleFrames : frames;
+        set({
+          selectedFrameId: targetList[targetList.length - 1].id,
+          followLatestInspector: false,
+          isAutoScrollPaused: false,
+          unseenNewFramesCount: 0,
+          lastScrollRequest: { target: 'latest', timestamp: Date.now() },
+        });
+      },
+
+      jumpToFirstFrame: () => {
+        const { frames, filterCriteria } = get();
+        if (frames.length === 0) return;
+        const visibleFrames = filterCriteria ? frames.filter((f) => matchesFilter(f, filterCriteria)) : frames;
+        const targetList = visibleFrames.length > 0 ? visibleFrames : frames;
+        set({
+          selectedFrameId: targetList[0].id,
+          followLatestInspector: false,
+          isAutoScrollPaused: true,
+          lastScrollRequest: { target: 'first', timestamp: Date.now() },
+        });
       },
 
       jumpToFrameId: (id) => {

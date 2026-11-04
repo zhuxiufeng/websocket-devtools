@@ -6,7 +6,7 @@ import { IncrementalFilterEngine } from '../core/incremental-filter';
 import { extractFrameField, formatExtractedValue } from '../core/field-extractor';
 import { highlightText } from '../utils/highlighter';
 import { formatColumnHeader } from '../utils/path-helper';
-import { ArrowDownLeft, ArrowUpRight, X, ExternalLink, ArrowDown, Download, Copy, Check } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, X, ExternalLink, ArrowDown, ArrowUp, Download, Copy, Check } from 'lucide-react';
 import type { WSFrame, HighlightRule, CustomColumn } from '../types/websocket';
 import { exportSingleColumnCsv, downloadCsvFile } from '../core/trace-io';
 
@@ -235,6 +235,7 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
   const isAutoScrollPaused = useWSStore((s) => s.isAutoScrollPaused);
   const followLatestInspector = useWSStore((s) => s.followLatestInspector);
   const unseenNewFramesCount = useWSStore((s) => s.unseenNewFramesCount);
+  const lastScrollRequest = useWSStore((s) => s.lastScrollRequest);
   const setIsAutoScrollPaused = useWSStore((s) => s.setIsAutoScrollPaused);
   const resetUnseenCount = useWSStore((s) => s.resetUnseenCount);
 
@@ -245,6 +246,7 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
   // Column resizing state
   const [resizingCol, setResizingCol] = useState<{ id: string; startX: number; startWidth: number } | null>(null);
   const [copiedColId, setCopiedColId] = useState<string | null>(null);
+  const [showScrollToTop, setShowScrollToTop] = useState(false);
 
   // Incremental filter engine instance
   const filterEngineRef = useRef<IncrementalFilterEngine | null>(null);
@@ -379,6 +381,23 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
     };
   }, [resizingCol, updateCustomColumnWidth]);
 
+  // Scroll to target from store action (jumpToFirstFrame / jumpToLatestFrame)
+  useEffect(() => {
+    if (!lastScrollRequest) return;
+    if (lastScrollRequest.target === 'first') {
+      if (filteredFrames.length > 0) {
+        rowVirtualizer.scrollToIndex(0, { align: 'start' });
+        if (containerRef.current) {
+          containerRef.current.scrollTop = 0;
+        }
+      }
+    } else if (lastScrollRequest.target === 'latest') {
+      if (filteredFrames.length > 0) {
+        rowVirtualizer.scrollToIndex(filteredFrames.length - 1, { align: 'end' });
+      }
+    }
+  }, [lastScrollRequest, filteredFrames, rowVirtualizer]);
+
   // Synchronize horizontal scrolling between header and virtual rows & detect user scroll
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
@@ -387,6 +406,7 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
     }
     const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     shouldAutoScrollRef.current = isAtBottom;
+    setShowScrollToTop(el.scrollTop > 250);
 
     if (!isAtBottom) {
       if (!isAutoScrollPaused) {
@@ -399,6 +419,19 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
       }
     }
   };
+
+  const scrollToTop = useCallback(() => {
+    setIsAutoScrollPaused(true);
+    shouldAutoScrollRef.current = false;
+    if (filteredFrames.length > 0) {
+      setSelectedFrameId(filteredFrames[0].id);
+      rowVirtualizer.scrollToIndex(0, { align: 'start' });
+    }
+    if (containerRef.current) {
+      containerRef.current.scrollTop = 0;
+    }
+    setShowScrollToTop(false);
+  }, [filteredFrames, rowVirtualizer, setIsAutoScrollPaused, setSelectedFrameId]);
 
   const scrollToBottom = () => {
     setIsAutoScrollPaused(false);
@@ -429,6 +462,18 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
 
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-[#1e1e1e] border-r border-[#3c3c3c] overflow-hidden select-none relative">
+      {/* Floating Jump to First Notification Pill */}
+      {showScrollToTop && filteredFrames.length > 0 && (
+        <button
+          onClick={scrollToTop}
+          className="absolute top-9 left-1/2 -translate-x-1/2 z-30 bg-[#252526]/95 hover:bg-[#2d2d2d] text-[#cccccc] hover:text-[#38bdf8] px-3 py-1 rounded-full text-[11px] font-medium shadow-2xl flex items-center gap-1.5 transition-all cursor-pointer border border-[#444444] backdrop-blur-sm"
+          title="Jump to first frame (Shortcut: Home)"
+        >
+          <ArrowUp className="w-3.5 h-3.5 text-[#38bdf8]" />
+          <span>Jump to First (#1)</span>
+        </button>
+      )}
+
       {/* Floating Unseen Frames Notification Pill */}
       {unseenNewFramesCount > 0 && (
         <button
@@ -450,7 +495,14 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
           style={{ minWidth: `${totalMinWidth}px` }}
           className="flex items-center h-full text-[11px] font-semibold text-[#aaaaaa] w-full"
         >
-          <div className="w-14 px-2 text-right border-r border-[#3c3c3c]/60 shrink-0">#</div>
+          <div
+            onClick={scrollToTop}
+            className="w-14 px-2 text-right border-r border-[#3c3c3c]/60 shrink-0 cursor-pointer hover:text-[#38bdf8] hover:bg-[#2a2d32] transition-colors flex items-center justify-end gap-1 group/hash"
+            title="Click to jump to First frame (Shortcut: Home)"
+          >
+            <ArrowUp className="w-2.5 h-2.5 opacity-0 group-hover/hash:opacity-100 transition-opacity text-[#38bdf8]" />
+            <span>#</span>
+          </div>
           <div className="w-12 px-1 text-center border-r border-[#3c3c3c]/60 shrink-0">Dir</div>
           <div className="w-28 px-2 border-r border-[#3c3c3c]/60 shrink-0">Time</div>
           <div className="w-16 px-1.5 text-right border-r border-[#3c3c3c]/60 shrink-0" title="Inter-frame interval (Δt) / Frequency">Δt</div>

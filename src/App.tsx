@@ -139,18 +139,12 @@ export const App: React.FC = () => {
       // Home: First frame
       else if (e.key === 'Home') {
         e.preventDefault();
-        const frames = useWSStore.getState().frames;
-        if (frames.length > 0) {
-          useWSStore.getState().setSelectedFrameId(frames[0].id);
-        }
+        useWSStore.getState().jumpToFirstFrame();
       }
       // End: Last frame
       else if (e.key === 'End') {
         e.preventDefault();
-        const frames = useWSStore.getState().frames;
-        if (frames.length > 0) {
-          useWSStore.getState().setSelectedFrameId(frames[frames.length - 1].id);
-        }
+        useWSStore.getState().jumpToLatestFrame();
       }
     };
 

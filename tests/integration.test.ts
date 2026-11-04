@@ -144,4 +144,41 @@ describe('DevTools Full Integration & Verification Test Suite', () => {
     const filterHas = parseFilterQuery('has:live_position');
     expect(matchesFilter(sampleFrame, filterHas)).toBe(true);
   });
+
+  it('6. Jump to first and latest frames updates selection, auto-scroll paused flag, and scroll request target', () => {
+    const store = useWSStore.getState();
+    const mock = new MockStreamGenerator((batch) => {
+      useWSStore.getState().addFramesBatch(batch);
+    });
+
+    // Ingest several ticks of frames
+    for (let i = 0; i < 20; i++) {
+      (mock as any).tick();
+    }
+
+    const frames = useWSStore.getState().frames;
+    expect(frames.length).toBeGreaterThan(10);
+
+    const firstFrame = frames[0];
+    const latestFrame = frames[frames.length - 1];
+
+    // Select middle frame and enable live tail
+    useWSStore.getState().setSelectedFrameId(frames[5].id);
+    useWSStore.getState().setFollowLatestInspector(true);
+    useWSStore.getState().setIsAutoScrollPaused(false);
+
+    // Call jumpToFirstFrame
+    useWSStore.getState().jumpToFirstFrame();
+    expect(useWSStore.getState().selectedFrameId).toBe(firstFrame.id);
+    expect(useWSStore.getState().followLatestInspector).toBe(false);
+    expect(useWSStore.getState().isAutoScrollPaused).toBe(true);
+    expect(useWSStore.getState().lastScrollRequest?.target).toBe('first');
+
+    // Call jumpToLatestFrame
+    useWSStore.getState().jumpToLatestFrame();
+    expect(useWSStore.getState().selectedFrameId).toBe(latestFrame.id);
+    expect(useWSStore.getState().followLatestInspector).toBe(false);
+    expect(useWSStore.getState().isAutoScrollPaused).toBe(false);
+    expect(useWSStore.getState().lastScrollRequest?.target).toBe('latest');
+  });
 });

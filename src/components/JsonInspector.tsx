@@ -15,6 +15,7 @@ import {
   Lock,
   Radio,
   ArrowDown,
+  ArrowUp,
   ExternalLink,
   Layers,
   GitCompare,
@@ -126,6 +127,7 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({ onClose }) => {
   const followLatest = useWSStore((state) => state.followLatestInspector);
   const setFollowLatest = useWSStore((state) => state.setFollowLatestInspector);
   const jumpToLatestFrame = useWSStore((state) => state.jumpToLatestFrame);
+  const jumpToFirstFrame = useWSStore((state) => state.jumpToFirstFrame);
   const jumpToFrameId = useWSStore((state) => state.jumpToFrameId);
   const addCustomColumn = useWSStore((state) => state.addCustomColumn);
   const addTelemetrySeries = useWSStore((state) => state.addTelemetrySeries);
@@ -404,11 +406,21 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({ onClose }) => {
             )}
           </button>
 
+          {/* Jump to First Frame button */}
+          <button
+            onClick={jumpToFirstFrame}
+            className="px-2 py-0.5 bg-[#2d2d2d] hover:bg-[#383838] text-[#aaaaaa] hover:text-[#38bdf8] rounded border border-[#444444] flex items-center gap-1 text-[10px] transition-colors"
+            title="Jump inspection to first frame (Shortcut: Home)"
+          >
+            <ArrowUp className="w-2.5 h-2.5" />
+            <span>First</span>
+          </button>
+
           {/* Jump to Latest Frame button */}
           <button
             onClick={jumpToLatestFrame}
             className="px-2 py-0.5 bg-[#2d2d2d] hover:bg-[#383838] text-[#aaaaaa] hover:text-[#38bdf8] rounded border border-[#444444] flex items-center gap-1 text-[10px] transition-colors"
-            title="Jump inspection to latest received frame"
+            title="Jump inspection to latest received frame (Shortcut: End)"
           >
             <ArrowDown className="w-2.5 h-2.5" />
             <span>Latest</span>
