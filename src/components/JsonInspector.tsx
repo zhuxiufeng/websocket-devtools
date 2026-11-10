@@ -25,6 +25,7 @@ import {
   PanelRightClose,
 } from 'lucide-react';
 import { getDisambiguatedPathAndName } from '../utils/path-helper';
+import { appendFilterToken, toggleFilterToken, hasFilterToken } from '../utils/filter-helper';
 import { computeJsonDiff } from '../utils/json-diff';
 import type { WSFrame } from '../types/websocket';
 
@@ -239,6 +240,10 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({ onClose }) => {
     navigator.clipboard.writeText(selectedFrame.payload);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  };
+
+  const handleFilterToken = (token: string) => {
+    setFilterQuery(toggleFilterToken(filterQuery, token));
   };
 
   const handleContextMenu = (e: React.MouseEvent, path: string, keyName: string, value: any) => {
@@ -736,6 +741,8 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({ onClose }) => {
                 onContextMenu={handleContextMenu}
                 onShowAsColumn={(path, key) => addCustomColumn(path, key)}
                 onTrackOnGraph={(path, key) => addTelemetrySeries(path, key)}
+                onFilter={handleFilterToken}
+                currentFilterQuery={filterQuery}
                 isRoot
                 depth={0}
                 searchQuery={trimmedQuery}
@@ -756,6 +763,8 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({ onClose }) => {
               onContextMenu={handleContextMenu}
               onShowAsColumn={(path, key) => addCustomColumn(path, key)}
               onTrackOnGraph={(path, key) => addTelemetrySeries(path, key)}
+              onFilter={handleFilterToken}
+              currentFilterQuery={filterQuery}
               isRoot
               depth={0}
               searchQuery={trimmedQuery}
@@ -832,35 +841,115 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({ onClose }) => {
 
           <div className="my-1 border-t border-[#3c3c3c]" />
 
-          <button
-            onClick={() => {
-              const valStr =
-                typeof contextMenu.value === 'object'
-                  ? JSON.stringify(contextMenu.value)
-                  : String(contextMenu.value);
-              setFilterQuery(`${filterQuery ? filterQuery + ' ' : ''}json:${contextMenu.keyName}=${valStr}`);
-              setContextMenu((prev) => ({ ...prev, visible: false }));
-            }}
-            className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
-          >
-            <Filter className="w-3.5 h-3.5 text-emerald-400" />
-            <span>🔍 Filter by Value</span>
-          </button>
+          {(() => {
+            const { cleanPath } = getDisambiguatedPathAndName(
+              contextMenu.path || contextMenu.keyName,
+              contextMenu.keyName
+            );
+            const isObj = typeof contextMenu.value === 'object' && contextMenu.value !== null;
+            const isMethod = contextMenu.keyName === 'method' && typeof contextMenu.value === 'string';
 
-          <button
-            onClick={() => {
-              const valStr =
-                typeof contextMenu.value === 'object'
-                  ? contextMenu.keyName
-                  : String(contextMenu.value);
-              setFilterQuery(`${filterQuery ? filterQuery + ' ' : ''}-${valStr}`);
-              setContextMenu((prev) => ({ ...prev, visible: false }));
-            }}
-            className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
-          >
-            <EyeOff className="w-3.5 h-3.5 text-rose-400" />
-            <span>🚫 Exclude Value</span>
-          </button>
+            if (isObj) {
+              return (
+                <>
+                  <button
+                    onClick={() => {
+                      setFilterQuery(appendFilterToken(filterQuery, `has:${cleanPath}`));
+                      setContextMenu((prev) => ({ ...prev, visible: false }));
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
+                  >
+                    <Filter className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>🔍 Filter field (has:{cleanPath})</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setFilterQuery(appendFilterToken(filterQuery, `-${cleanPath}`));
+                      setContextMenu((prev) => ({ ...prev, visible: false }));
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
+                  >
+                    <EyeOff className="w-3.5 h-3.5 text-rose-400" />
+                    <span>🚫 Exclude field (-{cleanPath})</span>
+                  </button>
+                </>
+              );
+            }
+
+            if (isMethod) {
+              const methodVal = String(contextMenu.value);
+              return (
+                <>
+                  <button
+                    onClick={() => {
+                      setFilterQuery(appendFilterToken(filterQuery, methodVal));
+                      setContextMenu((prev) => ({ ...prev, visible: false }));
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
+                  >
+                    <Filter className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>🔍 Filter method ({methodVal})</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setFilterQuery(appendFilterToken(filterQuery, `-${methodVal}`));
+                      setContextMenu((prev) => ({ ...prev, visible: false }));
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
+                  >
+                    <EyeOff className="w-3.5 h-3.5 text-rose-400" />
+                    <span>🚫 Exclude method (-{methodVal})</span>
+                  </button>
+                </>
+              );
+            }
+
+            const valStr = String(contextMenu.value);
+            return (
+              <>
+                <button
+                  onClick={() => {
+                    setFilterQuery(appendFilterToken(filterQuery, `json:${cleanPath}=${valStr}`));
+                    setContextMenu((prev) => ({ ...prev, visible: false }));
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
+                >
+                  <Filter className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>🔍 Filter by Value ({valStr.length > 12 ? valStr.slice(0, 12) + '...' : valStr})</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setFilterQuery(appendFilterToken(filterQuery, `has:${cleanPath}`));
+                    setContextMenu((prev) => ({ ...prev, visible: false }));
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
+                >
+                  <Filter className="w-3.5 h-3.5 text-teal-400" />
+                  <span>🔍 Filter field (has:{cleanPath})</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setFilterQuery(appendFilterToken(filterQuery, `-${valStr}`));
+                    setContextMenu((prev) => ({ ...prev, visible: false }));
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
+                >
+                  <EyeOff className="w-3.5 h-3.5 text-rose-400" />
+                  <span>🚫 Exclude Value (-{valStr.length > 12 ? valStr.slice(0, 12) + '...' : valStr})</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setFilterQuery(appendFilterToken(filterQuery, `-${cleanPath}`));
+                    setContextMenu((prev) => ({ ...prev, visible: false }));
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
+                >
+                  <EyeOff className="w-3.5 h-3.5 text-amber-400" />
+                  <span>🚫 Exclude field (-{cleanPath})</span>
+                </button>
+              </>
+            );
+          })()}
 
           <div className="my-1 border-t border-[#3c3c3c]" />
 
@@ -887,6 +976,8 @@ interface JsonTreeNodeProps {
   onContextMenu: (e: React.MouseEvent, path: string, keyName: string, value: any) => void;
   onShowAsColumn: (path: string, keyName: string) => void;
   onTrackOnGraph: (path: string, keyName: string) => void;
+  onFilter: (token: string) => void;
+  currentFilterQuery?: string;
   isRoot?: boolean;
   depth: number;
   searchQuery?: string;
@@ -901,6 +992,8 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = React.memo(({
   onContextMenu,
   onShowAsColumn,
   onTrackOnGraph,
+  onFilter,
+  currentFilterQuery = '',
   isRoot = false,
   depth,
   searchQuery = '',
@@ -914,6 +1007,10 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = React.memo(({
 
   const thisPath = isRoot ? '' : currentPath ? `${currentPath}.${keyName}` : keyName;
   const queryLower = searchQuery.toLowerCase();
+
+  const { cleanPath } = getDisambiguatedPathAndName(thisPath, keyName);
+  const filterToken = keyName === 'method' && typeof value === 'string' ? value : `has:${cleanPath}`;
+  const isFieldFiltered = Boolean(currentFilterQuery && hasFilterToken(currentFilterQuery, filterToken));
 
   const selfKeyMatches =
     Boolean(queryLower) &&
@@ -986,6 +1083,28 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = React.memo(({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
+                  onFilter(filterToken);
+                }}
+                className={`px-1.5 py-0.5 rounded text-[10px] flex items-center gap-0.5 transition-colors font-medium ${
+                  isFieldFiltered
+                    ? 'bg-emerald-900/90 text-emerald-200 border border-emerald-500/60 shadow-sm'
+                    : 'bg-[#064e3b] hover:bg-[#059669] text-emerald-300 hover:text-white'
+                }`}
+                title={
+                  isFieldFiltered
+                    ? `Remove filter "${filterToken}"`
+                    : keyName === 'method' && typeof value === 'string'
+                    ? `Filter stream by method "${value}"`
+                    : `Filter stream: only show frames containing "${cleanPath}" (${filterToken})`
+                }
+              >
+                <Filter className="w-2.5 h-2.5" />
+                <span>{isFieldFiltered ? 'Filtered' : 'Filter'}</span>
+              </button>
+
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
                   const { cleanPath, displayName } = getDisambiguatedPathAndName(thisPath, keyName);
                   onShowAsColumn(cleanPath, displayName);
                 }}
@@ -1010,6 +1129,8 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = React.memo(({
                 onContextMenu={onContextMenu}
                 onShowAsColumn={onShowAsColumn}
                 onTrackOnGraph={onTrackOnGraph}
+                onFilter={onFilter}
+                currentFilterQuery={currentFilterQuery}
                 depth={depth + 1}
                 searchQuery={searchQuery}
                 filterMatchesOnly={filterMatchesOnly}
@@ -1056,6 +1177,28 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = React.memo(({
       </div>
 
       <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 shrink-0 ml-2 select-none">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onFilter(filterToken);
+          }}
+          className={`px-1.5 py-0.5 rounded text-[10px] flex items-center gap-0.5 transition-colors font-medium ${
+            isFieldFiltered
+              ? 'bg-emerald-900/90 text-emerald-200 border border-emerald-500/60 shadow-sm'
+              : 'bg-[#064e3b] hover:bg-[#059669] text-emerald-300 hover:text-white'
+          }`}
+          title={
+            isFieldFiltered
+              ? `Remove filter "${filterToken}"`
+              : keyName === 'method' && typeof value === 'string'
+              ? `Filter stream by method "${value}"`
+              : `Filter stream: only show frames containing "${cleanPath}" (${filterToken})`
+          }
+        >
+          <Filter className="w-2.5 h-2.5" />
+          <span>{isFieldFiltered ? 'Filtered' : 'Filter'}</span>
+        </button>
+
         <button
           onClick={(e) => {
             e.stopPropagation();

@@ -6,7 +6,8 @@ import { IncrementalFilterEngine } from '../core/incremental-filter';
 import { extractFrameField, formatExtractedValue } from '../core/field-extractor';
 import { highlightText } from '../utils/highlighter';
 import { formatColumnHeader } from '../utils/path-helper';
-import { ArrowDownLeft, ArrowUpRight, X, ExternalLink, ArrowDown, ArrowUp, Download, Copy, Check, RotateCw } from 'lucide-react';
+import { appendFilterToken, toggleFilterToken, hasFilterToken } from '../utils/filter-helper';
+import { ArrowDownLeft, ArrowUpRight, X, ExternalLink, ArrowDown, ArrowUp, Download, Copy, Check, RotateCw, Filter, EyeOff } from 'lucide-react';
 import type { WSFrame, HighlightRule, CustomColumn } from '../types/websocket';
 import { exportSingleColumnCsv, downloadCsvFile } from '../core/trace-io';
 
@@ -25,6 +26,8 @@ interface FrameRowProps {
   highlightRules: HighlightRule[];
   onSelect: (id: string) => void;
   onJumpToPeer: (peerId: string) => void;
+  onContextMenu?: (e: React.MouseEvent, frame: WSFrame, col?: CustomColumn, directVal?: any) => void;
+  onFilterToken?: (token: string) => void;
 }
 
 const FrameRow = React.memo<FrameRowProps>(({
@@ -38,6 +41,8 @@ const FrameRow = React.memo<FrameRowProps>(({
   highlightRules,
   onSelect,
   onJumpToPeer,
+  onContextMenu,
+  onFilterToken,
 }) => {
   const highlightColor = matchedRule?.color || null;
   const shouldTintRow = enableRowTinting && !!matchedRule;
@@ -45,6 +50,9 @@ const FrameRow = React.memo<FrameRowProps>(({
   return (
     <div
       onClick={() => onSelect(frame.id)}
+      onContextMenu={(e) => {
+        onContextMenu?.(e, frame);
+      }}
       style={{
         position: 'absolute',
         top: 0,
@@ -126,27 +134,70 @@ const FrameRow = React.memo<FrameRowProps>(({
       <div className="w-56 px-2 shrink-0 border-r border-[#2d2d2d]/50 flex items-center justify-between overflow-hidden">
         <span className="truncate font-semibold text-[10.5px] flex items-center gap-1 min-w-0">
           {frame.rpcKind === 'response' ? (
-            <span className="text-emerald-400 flex items-center gap-1 truncate" title="JSON-RPC Response">
+            <span className="text-emerald-400 flex items-center gap-1 truncate" title="JSON-RPC Response. Click method to filter">
               <span className="px-1 py-0.2 bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 rounded text-[8.5px] font-mono shrink-0">RESP</span>
-              <span className="truncate">{frame.method}</span>
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (frame.method) onFilterToken?.(frame.method);
+                }}
+                className="truncate cursor-pointer hover:underline"
+              >
+                {frame.method}
+              </span>
             </span>
           ) : frame.rpcKind === 'request' ? (
-            <span className="text-cyan-400 flex items-center gap-1 truncate" title="JSON-RPC Request">
+            <span className="text-cyan-400 flex items-center gap-1 truncate" title="JSON-RPC Request. Click method to filter">
               <span className="px-1 py-0.2 bg-cyan-950/80 border border-cyan-500/40 text-cyan-400 rounded text-[8.5px] font-mono shrink-0">REQ</span>
-              <span className="truncate">{frame.method}</span>
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (frame.method) onFilterToken?.(frame.method);
+                }}
+                className="truncate cursor-pointer hover:underline"
+              >
+                {frame.method}
+              </span>
             </span>
           ) : frame.rpcKind === 'error' ? (
-            <span className="text-rose-400 flex items-center gap-1 truncate" title="JSON-RPC Error">
+            <span className="text-rose-400 flex items-center gap-1 truncate" title="JSON-RPC Error. Click method to filter">
               <span className="px-1 py-0.2 bg-rose-950/80 border border-rose-500/40 text-rose-400 rounded text-[8.5px] font-mono shrink-0">ERR</span>
-              <span className="truncate">{frame.method}</span>
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (frame.method) onFilterToken?.(frame.method);
+                }}
+                className="truncate cursor-pointer hover:underline"
+              >
+                {frame.method}
+              </span>
             </span>
           ) : frame.rpcKind === 'notification' ? (
-            <span className="text-purple-300 flex items-center gap-1 truncate" title="JSON-RPC Notification">
+            <span className="text-purple-300 flex items-center gap-1 truncate" title="JSON-RPC Notification. Click method to filter">
               <span className="px-1 py-0.2 bg-purple-950/80 border border-purple-500/40 text-purple-300 rounded text-[8.5px] font-mono shrink-0">NTF</span>
-              <span className="truncate">{frame.method}</span>
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (frame.method) onFilterToken?.(frame.method);
+                }}
+                className="truncate cursor-pointer hover:underline"
+              >
+                {frame.method}
+              </span>
             </span>
           ) : (
-            <span className="text-[#777777] truncate">{frame.method || '-'}</span>
+            <span
+              onClick={(e) => {
+                if (frame.method) {
+                  e.stopPropagation();
+                  onFilterToken?.(frame.method);
+                }
+              }}
+              className={`truncate ${frame.method ? 'cursor-pointer hover:underline' : ''}`}
+              title={frame.method ? `Click method "${frame.method}" to filter` : undefined}
+            >
+              {frame.method || '-'}
+            </span>
           )}
         </span>
 
@@ -189,6 +240,10 @@ const FrameRow = React.memo<FrameRowProps>(({
           <div
             key={col.id}
             style={{ width: `${colWidth}px` }}
+            onContextMenu={(e) => {
+              e.stopPropagation();
+              onContextMenu?.(e, frame, col, directVal);
+            }}
             className={`px-2 shrink-0 truncate font-mono border-r border-[#2d2d2d]/50 flex items-center gap-1 ${
               isCarried ? 'text-[#888888] italic' : 'text-[#38bdf8] font-medium'
             }`}
@@ -227,6 +282,8 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
   const setSelectedFrameId = useWSStore((s) => s.setSelectedFrameId);
   const jumpToFrameId = useWSStore((s) => s.jumpToFrameId);
   const filterCriteria = useWSStore((s) => s.filterCriteria);
+  const filterQuery = useWSStore((s) => s.filterQuery);
+  const setFilterQuery = useWSStore((s) => s.setFilterQuery);
   const customColumns = useWSStore((s) => s.customColumns);
   const updateCustomColumnWidth = useWSStore((s) => s.updateCustomColumnWidth);
   const removeCustomColumn = useWSStore((s) => s.removeCustomColumn);
@@ -244,6 +301,54 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
   const headerRef = useRef<HTMLDivElement>(null);
   const prevScrollTopRef = useRef<number>(0);
   const handledScrollTimestampRef = useRef<number>(lastScrollRequest?.timestamp ?? 0);
+
+  // Frame Context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    frame: WSFrame;
+    column?: CustomColumn;
+    columnValue?: any;
+  } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+    if (contextMenu?.visible) {
+      window.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => window.removeEventListener('mousedown', handleOutsideClick);
+  }, [contextMenu?.visible]);
+
+  const handleRowContextMenu = useCallback(
+    (e: React.MouseEvent, frame: WSFrame, col?: CustomColumn, columnValue?: any) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const x = Math.min(e.clientX, window.innerWidth - 240);
+      const y = Math.min(e.clientY, window.innerHeight - 260);
+      setContextMenu({
+        visible: true,
+        x,
+        y,
+        frame,
+        column: col,
+        columnValue,
+      });
+    },
+    []
+  );
+
+  const handleFilterToken = useCallback(
+    (token: string) => {
+      setFilterQuery(toggleFilterToken(filterQuery, token));
+    },
+    [filterQuery, setFilterQuery]
+  );
 
   // Column resizing state
   const [resizingCol, setResizingCol] = useState<{ id: string; startX: number; startWidth: number } | null>(null);
@@ -556,16 +661,40 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
           {/* Dynamic Custom Columns */}
           {customColumns.map((col) => {
             const colWidth = col.width || 190;
+            const isColFiltered = hasFilterToken(filterQuery, `has:${col.path}`);
             return (
               <div
                 key={col.id}
                 style={{ width: `${colWidth}px` }}
                 className="px-2 border-r border-[#3c3c3c]/60 shrink-0 flex items-center justify-between text-[#38bdf8] bg-[#1e293b]/40 font-mono relative group"
               >
-                <span className="truncate" title={col.path}>
-                  {formatColumnHeader(col.name, col.path)}
+                <span className="truncate flex items-center gap-1" title={col.path}>
+                  {isColFiltered && (
+                    <span title="Filtered (non-empty only)">
+                      <Filter className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
+                    </span>
+                  )}
+                  <span className="truncate">{formatColumnHeader(col.name, col.path)}</span>
                 </span>
                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-1 shrink-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setFilterQuery(toggleFilterToken(filterQuery, `has:${col.path}`));
+                    }}
+                    className={`p-0.5 rounded transition-colors ${
+                      isColFiltered
+                        ? 'text-emerald-400 bg-emerald-950/80 border border-emerald-500/50'
+                        : 'text-[#888888] hover:text-emerald-400'
+                    }`}
+                    title={
+                      isColFiltered
+                        ? `Remove filter "has:${col.path}"`
+                        : `Filter non-empty: only show frames with column "${col.name || col.path}" (has:${col.path})`
+                    }
+                  >
+                    <Filter className="w-2.5 h-2.5" />
+                  </button>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -676,12 +805,108 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
                   highlightRules={highlightRules}
                   onSelect={handleSelect}
                   onJumpToPeer={handleJumpToPeer}
+                  onContextMenu={handleRowContextMenu}
+                  onFilterToken={handleFilterToken}
                 />
               );
             })}
           </div>
         )}
       </div>
+
+      {/* Frame / Row Context Menu Popup */}
+      {contextMenu?.visible && (
+        <div
+          ref={contextMenuRef}
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          className="fixed z-50 w-56 bg-[#252526] border border-[#454545] rounded-md shadow-2xl py-1 text-xs select-none backdrop-blur-md"
+        >
+          <div className="px-3 py-1 text-[10px] text-[#888888] border-b border-[#3c3c3c] font-mono truncate">
+            Frame #{contextMenu.frame.seq ?? contextMenu.frame.id}
+          </div>
+
+          {contextMenu.frame.method && (
+            <>
+              <button
+                onClick={() => {
+                  setFilterQuery(appendFilterToken(filterQuery, contextMenu.frame.method!));
+                  setContextMenu(null);
+                }}
+                className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
+              >
+                <Filter className="w-3.5 h-3.5 text-emerald-400" />
+                <span>🔍 Filter method ({contextMenu.frame.method})</span>
+              </button>
+              <button
+                onClick={() => {
+                  setFilterQuery(appendFilterToken(filterQuery, `-${contextMenu.frame.method!}`));
+                  setContextMenu(null);
+                }}
+                className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
+              >
+                <EyeOff className="w-3.5 h-3.5 text-rose-400" />
+                <span>🚫 Exclude method (-{contextMenu.frame.method})</span>
+              </button>
+            </>
+          )}
+
+          <button
+            onClick={() => {
+              setFilterQuery(appendFilterToken(filterQuery, `dir:${contextMenu.frame.direction}`));
+              setContextMenu(null);
+            }}
+            className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
+          >
+            <Filter className="w-3.5 h-3.5 text-sky-400" />
+            <span>🔍 Filter direction (dir:{contextMenu.frame.direction})</span>
+          </button>
+
+          {contextMenu.column && (
+            <>
+              <div className="my-1 border-t border-[#3c3c3c]" />
+              {contextMenu.columnValue !== undefined && contextMenu.columnValue !== null && (
+                <button
+                  onClick={() => {
+                    const valStr =
+                      typeof contextMenu.columnValue === 'object'
+                        ? JSON.stringify(contextMenu.columnValue)
+                        : String(contextMenu.columnValue);
+                    setFilterQuery(appendFilterToken(filterQuery, `json:${contextMenu.column!.path}=${valStr}`));
+                    setContextMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
+                >
+                  <Filter className="w-3.5 h-3.5 text-teal-400" />
+                  <span>🔍 Filter by Value ({String(contextMenu.columnValue).slice(0, 12)})</span>
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setFilterQuery(appendFilterToken(filterQuery, `has:${contextMenu.column!.path}`));
+                  setContextMenu(null);
+                }}
+                className="w-full px-3 py-1.5 text-left text-[#dddddd] hover:bg-[#094771] flex items-center gap-2 transition-colors"
+              >
+                <Filter className="w-3.5 h-3.5 text-emerald-400" />
+                <span>🔍 Filter non-empty (has:{contextMenu.column!.path})</span>
+              </button>
+            </>
+          )}
+
+          <div className="my-1 border-t border-[#3c3c3c]" />
+
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(contextMenu.frame.payload || '');
+              setContextMenu(null);
+            }}
+            className="w-full px-3 py-1.5 text-left text-[#aaaaaa] hover:bg-[#333333] flex items-center gap-2 transition-colors text-[11px]"
+          >
+            <Copy className="w-3 h-3" />
+            <span>Copy Payload</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };
