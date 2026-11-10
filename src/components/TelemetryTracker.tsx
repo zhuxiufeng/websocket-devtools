@@ -1,5 +1,6 @@
-import React, { useMemo, useState, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { useWSStore } from '../store/ws-store';
+import { downsampleLTTB } from '../utils/lttb';
 import {
   Activity,
   X,
@@ -31,6 +32,15 @@ export const TelemetryTracker: React.FC = () => {
   const customColumns = useWSStore((s) => s.customColumns);
   const addTelemetrySeries = useWSStore((s) => s.addTelemetrySeries);
   const latestFrameTs = useWSStore((s) => s.frames[s.frames.length - 1]?.timestamp ?? 0);
+  const selectedFrameId = useWSStore((s) => s.selectedFrameId);
+  const jumpToFrameId = useWSStore((s) => s.jumpToFrameId);
+  const frames = useWSStore((s) => s.frames);
+  const setHoveredTelemetryFrameId = useWSStore((s) => s.setHoveredTelemetryFrameId);
+
+  const selectedFrame = useMemo(
+    () => (selectedFrameId ? frames.find((f) => f.id === selectedFrameId) : null),
+    [frames, selectedFrameId]
+  );
 
   const [windowSize, setWindowSize] = useState<number>(100);
   const [isMaximized, setIsMaximized] = useState<boolean>(false);
@@ -47,6 +57,8 @@ export const TelemetryTracker: React.FC = () => {
     x: number;
     y: number;
     time: string;
+    frameId?: string;
+    frameSeq?: number;
     values: { label: string; value: number; color: string }[];
   } | null>(null);
 
@@ -114,9 +126,11 @@ export const TelemetryTracker: React.FC = () => {
       } else {
         dataPoints = dataPoints.slice(Math.max(0, dataPoints.length - windowSize));
       }
+      // Apply LTTB downsampling when point count exceeds 500 to maintain 60fps rendering
+      const renderedPoints = dataPoints.length > 500 ? downsampleLTTB(dataPoints, 500) : dataPoints;
       return {
         ...s,
-        dataPoints,
+        dataPoints: renderedPoints,
       };
     });
 
@@ -368,6 +382,15 @@ export const TelemetryTracker: React.FC = () => {
     };
   }, [telemetrySeries, windowSize, isMaximized, scaleMode, zoomRange, latestFrameTs]);
 
+  // Synchronized scrubber position for the currently selected frame in the Table
+  const selectedFrameX = useMemo(() => {
+    if (!chartData || !selectedFrame || chartData.timeSpan <= 0) return null;
+    const ts = selectedFrame.timestamp;
+    if (ts < chartData.minTime || ts > chartData.maxTime) return null;
+    const progress = (ts - chartData.minTime) / chartData.timeSpan;
+    return chartData.padding.left + progress * chartData.plotW;
+  }, [chartData, selectedFrame]);
+
   // Handle Zoom via mouse wheel
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
@@ -428,15 +451,28 @@ export const TelemetryTracker: React.FC = () => {
       color: s.color,
     }));
 
-    const time = firstSeries?.dataPoints[bestIdx]?.formattedTime || '';
+    const nearestPoint = firstSeries?.dataPoints[bestIdx];
+    const time = nearestPoint?.formattedTime || '';
 
     setHoverPoint({
       index: bestIdx,
       x: clampedX,
       y: e.clientY - rect.top,
       time,
+      frameId: nearestPoint?.frameId,
+      frameSeq: nearestPoint?.frameSeq,
       values,
     });
+
+    if (nearestPoint?.frameId) {
+      setHoveredTelemetryFrameId(nearestPoint.frameId);
+    }
+  };
+
+  const handleClickChart = () => {
+    if (hoverPoint?.frameId) {
+      jumpToFrameId(hoverPoint.frameId);
+    }
   };
 
   // Box Zoom Mouse Up
@@ -820,7 +856,12 @@ export const TelemetryTracker: React.FC = () => {
             style={{ left: Math.min(hoverPoint.x + 10, (chartData?.width || 600) - 160), top: 20 }}
             className="absolute z-20 bg-[#252526]/95 border border-[#444444] rounded p-2 text-[10px] shadow-xl pointer-events-none font-mono"
           >
-            <div className="text-[#888888] mb-1 font-semibold">{hoverPoint.time || `Pt #${hoverPoint.index}`}</div>
+            <div className="text-[#888888] mb-1 font-semibold flex items-center justify-between gap-2">
+              <span>{hoverPoint.time || `Pt #${hoverPoint.index}`}</span>
+              {hoverPoint.frameSeq !== undefined && (
+                <span className="text-[#38bdf8] font-bold">Frame #{hoverPoint.frameSeq}</span>
+              )}
+            </div>
             {hoverPoint.values.map((v, i) => (
               <div key={i} className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: v.color }} />
@@ -828,6 +869,11 @@ export const TelemetryTracker: React.FC = () => {
                 <span className="text-white font-bold">{v.value.toFixed(2)}</span>
               </div>
             ))}
+            {hoverPoint.frameId && (
+              <div className="mt-1 pt-1 border-t border-[#3c3c3c] text-[9px] text-[#38bdf8] font-sans">
+                👆 Click to jump to Frame
+              </div>
+            )}
           </div>
         )}
 
@@ -837,9 +883,10 @@ export const TelemetryTracker: React.FC = () => {
             <svg
               ref={svgRef}
               id="telemetry-svg-chart"
-              className="w-full h-full"
+              className="w-full h-full cursor-pointer"
               viewBox={`0 0 ${chartData.width} ${chartData.height}`}
               preserveAspectRatio="none"
+              onClick={handleClickChart}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
@@ -847,6 +894,7 @@ export const TelemetryTracker: React.FC = () => {
               onMouseLeave={() => {
                 setHoverPoint(null);
                 setDragSelect(null);
+                setHoveredTelemetryFrameId(null);
               }}
             >
               {/* Horizontal Grid Lines */}
@@ -989,6 +1037,41 @@ export const TelemetryTracker: React.FC = () => {
                   stroke="#555555"
                   strokeDasharray="2 2"
                 />
+              )}
+
+              {/* Synchronized Scrubber Line (Selected Table Row) */}
+              {selectedFrameX !== null && (
+                <g className="telemetry-selected-scrubber" pointerEvents="none">
+                  <line
+                    x1={selectedFrameX}
+                    y1={chartData.padding.top}
+                    x2={selectedFrameX}
+                    y2={chartData.height - chartData.padding.bottom}
+                    stroke="#38bdf8"
+                    strokeWidth="1.5"
+                    strokeDasharray="4 2"
+                  />
+                  <rect
+                    x={Math.max(chartData.padding.left, Math.min(chartData.width - chartData.padding.right - 54, selectedFrameX - 27))}
+                    y={Math.max(2, chartData.padding.top - 14)}
+                    width={54}
+                    height={14}
+                    rx={3}
+                    fill="#0284c7"
+                    opacity="0.9"
+                  />
+                  <text
+                    x={Math.max(chartData.padding.left + 27, Math.min(chartData.width - chartData.padding.right - 27, selectedFrameX))}
+                    y={Math.max(12, chartData.padding.top - 3)}
+                    fill="#ffffff"
+                    fontSize="9"
+                    fontWeight="bold"
+                    textAnchor="middle"
+                    fontFamily="monospace"
+                  >
+                    #{selectedFrame?.seq}
+                  </text>
+                </g>
               )}
 
               {/* Series Curves */}

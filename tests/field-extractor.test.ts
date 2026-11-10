@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { extractField, extractFrameField, formatExtractedValue } from '../src/core/field-extractor';
+import {
+  extractField,
+  extractFrameField,
+  formatExtractedValue,
+  evaluateMathFormula,
+  extractCustomColumnValue,
+} from '../src/core/field-extractor';
 import type { WSFrame } from '../src/types/websocket';
 
 describe('field-extractor', () => {
@@ -124,5 +130,49 @@ describe('field-extractor', () => {
     // position / gcode_move.position is in this frame, so it extracts accurately
     expect(extractField(deltaPayload, 'position')).toEqual([99.723, 132.275, 3.621, 1.91422]);
     expect(extractField(deltaPayload, 'gcode_move.position')).toEqual([99.723, 132.275, 3.621, 1.91422]);
+  });
+
+  it('evaluates math formulas on custom columns (e.g. target - temperature, speed * 60)', () => {
+    const frame: WSFrame = {
+      id: 'frame-test',
+      connectionId: 'conn-1',
+      direction: 'in',
+      timestamp: Date.now(),
+      timeFormatted: '12:00:00.000',
+      length: 100,
+      payload: JSON.stringify(moonrakerStatusPayload),
+      jsonPayload: moonrakerStatusPayload,
+      isJson: true,
+    };
+
+    // Temperature offset formula: target - temperature
+    const tempDeltaCol = {
+      id: 'col-temp-delta',
+      name: 'Temp Delta',
+      path: 'extruder.temperature',
+      formula: 'extruder.target - extruder.temperature',
+    };
+    const deltaVal = extractCustomColumnValue(frame, tempDeltaCol);
+    expect(Number(deltaVal.toFixed(1))).toBe(4.8); // 220.0 - 215.2 = 4.8
+
+    // Multiplier with self value 'val'
+    const speedMinCol = {
+      id: 'col-speed-min',
+      name: 'Speed mm/min',
+      path: 'gcode_move.speed',
+      formula: 'val * 60',
+    };
+    const speedVal = extractCustomColumnValue(frame, speedMinCol);
+    expect(speedVal).toBe(7200); // 120 * 60 = 7200
+
+    // Math functions
+    const absDiffCol = {
+      id: 'col-abs',
+      name: 'Abs Delta',
+      path: 'heater_bed.temperature',
+      formula: 'abs(heater_bed.target - heater_bed.temperature)',
+    };
+    const absVal = extractCustomColumnValue(frame, absDiffCol);
+    expect(Number(absVal.toFixed(1))).toBe(0.2); // |60.0 - 59.8| = 0.2
   });
 });

@@ -1,5 +1,5 @@
 import type { WSFrame, WSConnection, CustomColumn, HighlightRule } from '../types/websocket';
-import { extractFrameField } from './field-extractor';
+import { extractFrameField, extractCustomColumnValue } from './field-extractor';
 
 export interface TraceFileFormat {
   version: 1;
@@ -121,7 +121,7 @@ export function exportColumnsCsvChunks(
 
     // Dynamic custom columns with carry-forward support
     for (const col of customColumns) {
-      let val = extractFrameField(frame, col.path);
+      let val = extractCustomColumnValue(frame, col);
       if ((val === undefined || val === null) && enableCarryForward && frame.carried?.[col.id]) {
         val = frame.carried[col.id].value;
       }
@@ -226,7 +226,7 @@ export function exportSelectedColumnsCsv(
     if (includeRpcLatency) row.push(frame.rpcLatencyMs !== undefined ? frame.rpcLatencyMs : '');
 
     for (const col of activeCustomCols) {
-      let val = extractFrameField(frame, col.path);
+      let val = extractCustomColumnValue(frame, col);
       if ((val === undefined || val === null) && enableCarryForward && frame.carried?.[col.id]) {
         val = frame.carried[col.id].value;
       }
@@ -268,7 +268,7 @@ export function exportSingleColumnCsv(
 
   for (let i = 0; i < frames.length; i++) {
     const frame = frames[i];
-    let val = extractFrameField(frame, col.path);
+    let val = extractCustomColumnValue(frame, col as any);
     if ((val === undefined || val === null) && enableCarryForward && frame.carried?.[colId]) {
       val = frame.carried[colId].value;
     }

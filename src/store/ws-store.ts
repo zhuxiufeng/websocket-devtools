@@ -7,6 +7,7 @@ import type {
   TelemetrySeries,
   HighlightRule,
   FilterCriteria,
+  FilterPreset,
   MockStreamSpeed,
   MethodStat,
 } from '../types/websocket';
@@ -17,7 +18,7 @@ import { globalFrameProcessor } from '../core/frame-processor';
 import { parseTraceJson } from '../core/trace-io';
 
 const MAX_FRAMES = 10000;
-const MAX_TELEMETRY_POINTS = 1000;
+const MAX_TELEMETRY_POINTS = 10000;
 
 const DEFAULT_HIGHLIGHT_COLORS = ['#f59e0b', '#10b981', '#3b82f6', '#ec4899', '#8b5cf6'];
 
@@ -63,6 +64,7 @@ interface WSStoreState {
   // Column management
   addCustomColumn: (path: string, name?: string) => void;
   updateCustomColumnWidth: (id: string, width: number) => void;
+  updateCustomColumnFormula: (id: string, formula: string) => void;
   removeCustomColumn: (id: string) => void;
   setEnableCarryForward: (enable: boolean) => void;
 
@@ -70,6 +72,8 @@ interface WSStoreState {
   addTelemetrySeries: (fieldPath: string, label?: string) => void;
   removeTelemetrySeries: (id: string) => void;
   clearTelemetryPoints: () => void;
+  hoveredTelemetryFrameId: string | null;
+  setHoveredTelemetryFrameId: (id: string | null) => void;
 
   // Highlights
   addHighlightRule: (text: string, color?: string) => void;
@@ -99,6 +103,17 @@ interface WSStoreState {
 // In-memory quick lookup cache bounded to prevent memory leaks on 100k~1M frames
 const MAX_LOOKUP_MAP_SIZE = 10000;
 const framesLookupMap = new Map<string, WSFrame>();
+
+export const DEFAULT_FILTER_PRESETS: FilterPreset[] = [
+  { id: 'pre-1', name: '🚨 Errors & Warnings', query: 'error' },
+  { id: 'pre-2', name: '📤 Outgoing Commands', query: 'dir:out' },
+  { id: 'pre-3', name: '📥 Incoming Updates', query: 'dir:in' },
+  { id: 'pre-4', name: '⚡ JSON-RPC Events', query: 'json:method' },
+  { id: 'pre-5', name: '🖨️ Klipper Status Deltas', query: 'notify_status_update' },
+  { id: 'pre-6', name: '⏱️ High Latency (>50ms)', query: 'latency>50ms' },
+  { id: 'pre-7', name: '🔇 Mute Routine Heartbeats', query: '-ping -pong -system_stats' },
+  { id: 'pre-8', name: '📍 Coordinates & Movement', query: 'has:gcode_move OR has:live_position' },
+];
 
 export const useWSStore = create<WSStoreState>()(
   persist(
@@ -142,13 +157,10 @@ export const useWSStore = create<WSStoreState>()(
         }
       },
 
-      filterPresets: [
-        { id: 'pre-1', name: '🚨 Errors & Warnings', query: 'error' },
-        { id: 'pre-2', name: '📤 Outgoing Commands', query: 'dir:out' },
-        { id: 'pre-3', name: '📥 Incoming Updates', query: 'dir:in' },
-        { id: 'pre-4', name: '⚡ JSON-RPC Events', query: 'json:method' },
-      ],
+      filterPresets: [...DEFAULT_FILTER_PRESETS],
       filterHistory: [],
+      hoveredTelemetryFrameId: null,
+      setHoveredTelemetryFrameId: (id) => set({ hoveredTelemetryFrameId: id }),
 
       addFilterPreset: (name, query) => {
         const trimmed = query.trim();
@@ -378,6 +390,8 @@ export const useWSStore = create<WSStoreState>()(
                     time: frame.timestamp,
                     value: valNum,
                     formattedTime: frame.timeFormatted,
+                    frameId: frame.id,
+                    frameSeq: frame.seq,
                   });
                 } else if (lastVal !== null && frame.timestamp - lastPointTime >= 1000) {
                   // Heartbeat / Carry-forward for telemetry:
@@ -388,6 +402,8 @@ export const useWSStore = create<WSStoreState>()(
                     time: frame.timestamp,
                     value: lastVal,
                     formattedTime: frame.timeFormatted,
+                    frameId: frame.id,
+                    frameSeq: frame.seq,
                   });
                 }
               }
@@ -505,6 +521,14 @@ export const useWSStore = create<WSStoreState>()(
         }));
       },
 
+      updateCustomColumnFormula: (id, formula) => {
+        set((state) => ({
+          customColumns: state.customColumns.map((c) =>
+            c.id === id ? { ...c, formula: formula.trim() } : c
+          ),
+        }));
+      },
+
       removeCustomColumn: (id) => {
         set((state) => ({
           customColumns: state.customColumns.filter((c) => c.id !== id),
@@ -604,6 +628,8 @@ export const useWSStore = create<WSStoreState>()(
                 time: f.timestamp,
                 value: num,
                 formattedTime: f.timeFormatted,
+                frameId: f.id,
+                frameSeq: f.seq,
               });
             } else if (lastVal !== null && f.timestamp - lastPointTime >= 1000) {
               lastPointTime = f.timestamp;
@@ -611,6 +637,8 @@ export const useWSStore = create<WSStoreState>()(
                 time: f.timestamp,
                 value: lastVal,
                 formattedTime: f.timeFormatted,
+                frameId: f.id,
+                frameSeq: f.seq,
               });
             }
           }
@@ -735,6 +763,14 @@ export const useWSStore = create<WSStoreState>()(
             ...cfg,
             dataPoints: [],
           }));
+        }
+        if (state && state.filterPresets) {
+          const existingIds = new Set(state.filterPresets.map((p) => p.id));
+          for (const def of DEFAULT_FILTER_PRESETS) {
+            if (!existingIds.has(def.id)) {
+              state.filterPresets.push(def);
+            }
+          }
         }
       },
     }

@@ -1,4 +1,4 @@
-import type { WSFrame } from '../types/websocket';
+import type { WSFrame, CustomColumn } from '../types/websocket';
 
 /**
  * Normalizes path strings like 'params[0].foo[1]' to 'params.0.foo.1'
@@ -196,4 +196,67 @@ export function formatExtractedValue(value: any): string {
   }
 
   return String(value);
+}
+
+/**
+ * Safely evaluates a math expression with variable resolution
+ */
+export function evaluateMathFormula(
+  formula: string,
+  resolveVariable: (name: string) => number | undefined
+): number | undefined {
+  if (!formula || typeof formula !== 'string') return undefined;
+
+  // Replace variable identifiers with resolved numbers
+  const varRegex = /[a-zA-Z_][a-zA-Z0-9_\.]*/g;
+  let hasMissingVar = false;
+
+  // Functions supported
+  const allowedFuncs = new Set(['abs', 'round', 'floor', 'ceil', 'sqrt', 'min', 'max']);
+
+  const replaced = formula.replace(varRegex, (match) => {
+    if (allowedFuncs.has(match.toLowerCase())) {
+      return `Math.${match.toLowerCase()}`;
+    }
+    const val = resolveVariable(match);
+    if (val === undefined || isNaN(val)) {
+      hasMissingVar = true;
+      return '0';
+    }
+    return String(val);
+  });
+
+  if (hasMissingVar) return undefined;
+
+  // Validate sanitized expression only contains Math.*, numbers, operators, parens
+  if (!/^[0-9\.\s\+\-\*\/\(\)\,\^Math\.\w]+$/.test(replaced)) {
+    return undefined;
+  }
+
+  try {
+    const jsExpr = replaced.replace(/\^/g, '**');
+    const result = new Function(`"use strict"; return (${jsExpr})`)();
+    return typeof result === 'number' && !isNaN(result) ? result : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Evaluates a custom column value, applying formula if configured
+ */
+export function extractCustomColumnValue(frame: WSFrame, col: CustomColumn): any {
+  if (!col) return undefined;
+  if (!col.formula || !col.formula.trim()) {
+    return extractFrameField(frame, col.path);
+  }
+
+  return evaluateMathFormula(col.formula, (varName) => {
+    if (varName === 'val' || varName === 'self') {
+      const selfVal = extractFrameField(frame, col.path);
+      return typeof selfVal === 'number' ? selfVal : Number(selfVal);
+    }
+    const val = extractFrameField(frame, varName);
+    return typeof val === 'number' ? val : Number(val);
+  });
 }

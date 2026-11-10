@@ -252,4 +252,34 @@ describe('CSV Column Data Export Suite', () => {
     expect(lines[0]).not.toContain('X Pos');
     expect(lines[0]).not.toContain('Seq');
   });
+
+  it('7. Exports custom columns evaluated with math formulas', () => {
+    const customCols: CustomColumn[] = [
+      { id: 'col-speed', path: 'params[0].speed', name: 'Speed mm/min', formula: 'val * 60' },
+      { id: 'col-temp', path: 'params[0].temp', name: 'Temp Offset', formula: 'val - 200' },
+    ];
+
+    const frames: WSFrame[] = [
+      {
+        id: 'f-1',
+        seq: 1,
+        connectionId: 'c1',
+        direction: 'in',
+        timestamp: 1680000000000,
+        timeFormatted: '12:00:00.000',
+        length: 50,
+        payload: '{"params":[{"speed":50,"temp":215}]}',
+        jsonPayload: { params: [{ speed: 50, temp: 215 }] },
+        isJson: true,
+      },
+    ];
+
+    const singleCsv = exportSingleColumnCsv(frames, customCols[0]);
+    expect(singleCsv).toContain('Seq,Time,Timestamp_ms,Speed mm/min');
+    expect(singleCsv).toContain('1,12:00:00.000,1680000000000,3000');
+
+    const fullCsv = exportColumnsCsv(frames, customCols);
+    expect(fullCsv).toContain('3000');
+    expect(fullCsv).toContain('15');
+  });
 });

@@ -61,12 +61,15 @@ export interface CustomColumn {
   name: string;
   path: string;
   width?: number;
+  formula?: string; // Optional math formula, e.g. "target - temperature" or "val * 60"
 }
 
 export interface TelemetryPoint {
   time: number;
   value: number;
   formattedTime: string;
+  frameId?: string; // Paired frame id for bidirectional inspector/table sync
+  frameSeq?: number;
 }
 
 export interface TelemetrySeries {
@@ -86,15 +89,33 @@ export interface HighlightRule {
   tintRow: boolean;
 }
 
+export type ComparisonOp = '>=' | '<=' | '!=' | '==' | '>' | '<' | '=';
+
+export interface NumericComparison {
+  field: string;
+  op: ComparisonOp;
+  value: number;
+}
+
 export interface FilterCriteria {
   rawQuery: string;
   direction: 'all' | 'in' | 'out';
   excludeKeywords: string[];
   hasFields: string[];
   jsonKeyValues: { key: string; value: string }[];
+  numericComparisons: NumericComparison[];
   textKeywords: string[];
   regexes: RegExp[];
   excludeRegexes: RegExp[];
+  orClauses?: FilterCriteria[]; // Optional OR branches: (ClauseA OR ClauseB)
+}
+
+export interface FilterPreset {
+  id: string;
+  name: string;
+  query: string;
+  description?: string;
+  isBuiltin?: boolean;
 }
 
 export interface MethodStat {

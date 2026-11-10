@@ -3,11 +3,11 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useWSStore } from '../store/ws-store';
 import { matchesFilter } from '../core/filter-engine';
 import { IncrementalFilterEngine } from '../core/incremental-filter';
-import { extractFrameField, formatExtractedValue } from '../core/field-extractor';
+import { extractFrameField, extractCustomColumnValue, formatExtractedValue } from '../core/field-extractor';
 import { highlightText } from '../utils/highlighter';
 import { formatColumnHeader } from '../utils/path-helper';
 import { appendFilterToken, toggleFilterToken, hasFilterToken } from '../utils/filter-helper';
-import { ArrowDownLeft, ArrowUpRight, X, ExternalLink, ArrowDown, ArrowUp, Download, Copy, Check, RotateCw, Filter, EyeOff } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, X, ExternalLink, ArrowDown, ArrowUp, Download, Copy, Check, RotateCw, Filter, EyeOff, Calculator } from 'lucide-react';
 import type { WSFrame, HighlightRule, CustomColumn } from '../types/websocket';
 import { exportSingleColumnCsv, downloadCsvFile } from '../core/trace-io';
 
@@ -224,7 +224,7 @@ const FrameRow = React.memo<FrameRowProps>(({
       {/* Dynamic Custom Columns with Carry-Forward Support */}
       {customColumns.map((col) => {
         const colWidth = col.width || 190;
-        const directVal = extractFrameField(frame, col.path);
+        const directVal = extractCustomColumnValue(frame, col);
         let isCarried = false;
         let fromId: string | undefined;
         let displayVal = directVal;
@@ -286,7 +286,10 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
   const setFilterQuery = useWSStore((s) => s.setFilterQuery);
   const customColumns = useWSStore((s) => s.customColumns);
   const updateCustomColumnWidth = useWSStore((s) => s.updateCustomColumnWidth);
+  const updateCustomColumnFormula = useWSStore((s) => s.updateCustomColumnFormula);
   const removeCustomColumn = useWSStore((s) => s.removeCustomColumn);
+  const [editingFormulaColId, setEditingFormulaColId] = useState<string | null>(null);
+  const [formulaInput, setFormulaInput] = useState('');
   const highlightRules = useWSStore((s) => s.highlightRules);
   const enableRowTinting = useWSStore((s) => s.enableRowTinting);
   const enableCarryForward = useWSStore((s) => s.enableCarryForward);
@@ -662,16 +665,30 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
           {customColumns.map((col) => {
             const colWidth = col.width || 190;
             const isColFiltered = hasFilterToken(filterQuery, `has:${col.path}`);
+            const hasFormula = Boolean(col.formula?.trim());
             return (
               <div
                 key={col.id}
                 style={{ width: `${colWidth}px` }}
                 className="px-2 border-r border-[#3c3c3c]/60 shrink-0 flex items-center justify-between text-[#38bdf8] bg-[#1e293b]/40 font-mono relative group"
               >
-                <span className="truncate flex items-center gap-1" title={col.path}>
+                <span className="truncate flex items-center gap-1" title={col.path + (col.formula ? ` | Formula: ${col.formula}` : '')}>
                   {isColFiltered && (
                     <span title="Filtered (non-empty only)">
                       <Filter className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
+                    </span>
+                  )}
+                  {hasFormula && (
+                    <span
+                      title={`Formula: ${col.formula}`}
+                      className="px-1 py-0.2 bg-purple-900/70 border border-purple-500/60 text-purple-300 rounded text-[9px] font-bold shrink-0 cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingFormulaColId(col.id);
+                        setFormulaInput(col.formula || '');
+                      }}
+                    >
+                      fx
                     </span>
                   )}
                   <span className="truncate">{formatColumnHeader(col.name, col.path)}</span>
@@ -694,6 +711,21 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
                     }
                   >
                     <Filter className="w-2.5 h-2.5" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingFormulaColId(editingFormulaColId === col.id ? null : col.id);
+                      setFormulaInput(col.formula || '');
+                    }}
+                    className={`p-0.5 rounded transition-colors ${
+                      hasFormula
+                        ? 'text-purple-400 bg-purple-950/80 border border-purple-500/50'
+                        : 'text-[#888888] hover:text-purple-400'
+                    }`}
+                    title={hasFormula ? `Edit Formula (${col.formula})` : 'Add Math Formula (e.g. val * 60, val - 20)'}
+                  >
+                    <Calculator className="w-2.5 h-2.5" />
                   </button>
                   <button
                     onClick={(e) => {
@@ -730,6 +762,69 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
                     <X className="w-3 h-3" />
                   </button>
                 </div>
+
+                {/* Formula Editor Popover */}
+                {editingFormulaColId === col.id && (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute top-full left-0 mt-1 z-50 bg-[#1e1e1e] border border-[#3c3c3c] shadow-2xl rounded p-2 text-xs w-64 font-sans text-white normal-case"
+                  >
+                    <div className="font-semibold text-[11px] text-[#38bdf8] mb-1 flex items-center justify-between">
+                      <span>Formula: {formatColumnHeader(col.name, col.path)}</span>
+                      <button onClick={() => setEditingFormulaColId(null)} className="text-[#888888] hover:text-white">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <div className="text-[10px] text-[#888888] mb-1.5 leading-tight">
+                      Use <code className="text-amber-300">val</code> (or <code className="text-amber-300">self</code>), e.g. <code className="text-amber-300">val * 60</code>, <code className="text-amber-300">val - 25</code>, <code className="text-amber-300">abs(val)</code>
+                    </div>
+                    <input
+                      type="text"
+                      value={formulaInput}
+                      onChange={(e) => setFormulaInput(e.target.value)}
+                      placeholder="e.g. val * 1000"
+                      className="w-full bg-[#2d2d2d] border border-[#444444] rounded px-2 py-1 text-xs text-white font-mono focus:border-[#38bdf8] focus:outline-none mb-2"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          updateCustomColumnFormula(col.id, formulaInput);
+                          setEditingFormulaColId(null);
+                        } else if (e.key === 'Escape') {
+                          setEditingFormulaColId(null);
+                        }
+                      }}
+                    />
+                    <div className="flex items-center justify-between gap-1">
+                      <button
+                        onClick={() => {
+                          updateCustomColumnFormula(col.id, '');
+                          setEditingFormulaColId(null);
+                        }}
+                        className="px-2 py-0.5 bg-red-950/60 hover:bg-red-900 border border-red-800 text-red-300 rounded text-[10px]"
+                      >
+                        Clear
+                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setEditingFormulaColId(null)}
+                          className="px-2 py-0.5 bg-[#333333] hover:bg-[#444444] text-[#cccccc] rounded text-[10px]"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => {
+                            updateCustomColumnFormula(col.id, formulaInput);
+                            setEditingFormulaColId(null);
+                          }}
+                          className="px-2 py-0.5 bg-[#0284c7] hover:bg-[#0369a1] text-white font-medium rounded text-[10px]"
+                        >
+                          Apply
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Drag resize handle */}
                 <div
                   onMouseDown={(e) => {
