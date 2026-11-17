@@ -18,6 +18,7 @@ interface FrameTableProps {
 interface FrameRowProps {
   frame: WSFrame;
   isSelected: boolean;
+  isTelemetryHovered?: boolean;
   virtualRow: { size: number; start: number; index: number };
   customColumns: CustomColumn[];
   matchedRule: (HighlightRule & { lowerText: string }) | null;
@@ -33,6 +34,7 @@ interface FrameRowProps {
 const FrameRow = React.memo<FrameRowProps>(({
   frame,
   isSelected,
+  isTelemetryHovered = false,
   virtualRow,
   customColumns,
   matchedRule,
@@ -62,6 +64,8 @@ const FrameRow = React.memo<FrameRowProps>(({
         transform: `translateY(${virtualRow.start}px)`,
         backgroundColor: isSelected
           ? '#094771'
+          : isTelemetryHovered
+          ? '#0c4a6e'
           : shouldTintRow && highlightColor
           ? `${highlightColor}22`
           : virtualRow.index % 2 === 0
@@ -69,11 +73,15 @@ const FrameRow = React.memo<FrameRowProps>(({
           : '#232323',
       }}
       className={`flex items-center border-b border-[#2d2d2d] hover:bg-[#2a2d2e] cursor-pointer transition-colors ${
-        isSelected ? 'text-white' : 'text-[#cccccc]'
+        isSelected
+          ? 'text-white'
+          : isTelemetryHovered
+          ? 'text-white ring-1 ring-[#38bdf8] z-10'
+          : 'text-[#cccccc]'
       }`}
     >
       {/* Index / Seq */}
-      <div className="w-14 px-2 text-right text-[#777777] shrink-0 border-r border-[#2d2d2d]/50">
+      <div className="w-16 px-1.5 text-right text-[#777777] shrink-0 border-r border-[#2d2d2d]/50 font-mono">
         {frame.seq ?? virtualRow.index + 1}
       </div>
 
@@ -90,9 +98,9 @@ const FrameRow = React.memo<FrameRowProps>(({
         )}
       </div>
 
-      {/* Time */}
+      {/* Time - w-32 (128px) ensures HH:mm:ss.SSS never clips or truncates */}
       <div
-        className="w-28 px-2 text-[#999999] shrink-0 truncate border-r border-[#2d2d2d]/50 font-mono"
+        className="w-32 px-1.5 text-[#999999] shrink-0 truncate border-r border-[#2d2d2d]/50 font-mono text-[11px]"
         title={frame.timeFormatted}
       >
         {frame.timeFormatted}
@@ -302,6 +310,7 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
   const lastScrollRequest = useWSStore((s) => s.lastScrollRequest);
   const setIsAutoScrollPaused = useWSStore((s) => s.setIsAutoScrollPaused);
   const resetUnseenCount = useWSStore((s) => s.resetUnseenCount);
+  const hoveredTelemetryFrameId = useWSStore((s) => s.hoveredTelemetryFrameId);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -505,22 +514,39 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
     }
   }, [selectedFrameId, filteredFrames, rowVirtualizer, isAutoScrollPaused, followLatestInspector]);
 
-  // Handle column resize drag
+  // Handle column resize drag with requestAnimationFrame throttling for smooth 60fps dragging
   useEffect(() => {
     if (!resizingCol) return;
 
+    let rafId: number | null = null;
+    let latestClientX = resizingCol.startX;
+
     const handleMouseMove = (e: MouseEvent) => {
-      const diff = e.clientX - resizingCol.startX;
-      updateCustomColumnWidth(resizingCol.id, resizingCol.startWidth + diff);
+      latestClientX = e.clientX;
+      if (rafId === null) {
+        rafId = requestAnimationFrame(() => {
+          rafId = null;
+          const diff = latestClientX - resizingCol.startX;
+          updateCustomColumnWidth(resizingCol.id, resizingCol.startWidth + diff);
+        });
+      }
     };
 
     const handleMouseUp = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
       setResizingCol(null);
     };
 
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
     return () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
@@ -610,7 +636,7 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
   }, [filteredFrames, rowVirtualizer, setIsAutoScrollPaused, resetUnseenCount]);
 
   const totalMinWidth = useMemo(() => {
-    const baseColsWidth = 56 + 48 + 112 + 64 + 64 + 224; // w-14 (56) + w-12 (48) + w-28 (112) + w-16(Δt 64) + w-16(Len 64) + w-56(Method 224) = 568px
+    const baseColsWidth = 64 + 48 + 128 + 64 + 64 + 224; // w-16(64) + w-12(48) + w-32(128) + w-16(Δt 64) + w-16(Len 64) + w-56(Method 224) = 592px
     const customColsWidth = customColumns.reduce((sum, col) => sum + (col.width || 190), 0);
     let maxPayloadLen = 0;
     for (let i = 0; i < filteredFrames.length; i++) {
@@ -652,14 +678,14 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
         >
           <div
             onClick={scrollToTop}
-            className="w-14 px-2 text-right border-r border-[#3c3c3c]/60 shrink-0 cursor-pointer hover:text-[#38bdf8] hover:bg-[#2a2d32] transition-colors flex items-center justify-end gap-1 group/hash"
+            className="w-16 px-1.5 text-right border-r border-[#3c3c3c]/60 shrink-0 cursor-pointer hover:text-[#38bdf8] hover:bg-[#2a2d32] transition-colors flex items-center justify-end gap-1 group/hash"
             title="Click to jump to First frame (Shortcut: Home)"
           >
             <ArrowUp className="w-2.5 h-2.5 opacity-0 group-hover/hash:opacity-100 transition-opacity text-[#38bdf8]" />
             <span>#</span>
           </div>
           <div className="w-12 px-1 text-center border-r border-[#3c3c3c]/60 shrink-0">Dir</div>
-          <div className="w-28 px-2 border-r border-[#3c3c3c]/60 shrink-0">Time</div>
+          <div className="w-32 px-1.5 border-r border-[#3c3c3c]/60 shrink-0">Time</div>
           <div className="w-16 px-1.5 text-right border-r border-[#3c3c3c]/60 shrink-0" title="Inter-frame interval (Δt) / Frequency">Δt</div>
           <div className="w-16 px-2 text-right border-r border-[#3c3c3c]/60 shrink-0">Len</div>
           <div className="w-56 px-2 border-r border-[#3c3c3c]/60 shrink-0">Method / RPC</div>
@@ -895,6 +921,7 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
                   key={frame.id}
                   frame={frame}
                   isSelected={frame.id === selectedFrameId}
+                  isTelemetryHovered={frame.id === hoveredTelemetryFrameId}
                   virtualRow={virtualRow}
                   customColumns={customColumns}
                   matchedRule={getMatchedHighlightRule(frame)}

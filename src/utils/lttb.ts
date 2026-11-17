@@ -5,8 +5,20 @@ import type { TelemetryPoint } from '../types/websocket';
  * Preserves visual peaks, troughs, and data trends while dramatically reducing points for rendering.
  */
 export function downsampleLTTB(data: TelemetryPoint[], threshold: number): TelemetryPoint[] {
-  if (threshold >= data.length || threshold === 0) {
+  if (!data || data.length === 0) {
+    return [];
+  }
+
+  if (threshold <= 0 || threshold >= data.length) {
     return data; // No downsampling needed
+  }
+
+  if (threshold === 1) {
+    return [data[0]];
+  }
+
+  if (threshold === 2) {
+    return data.length >= 2 ? [data[0], data[data.length - 1]] : data;
   }
 
   const sampled: TelemetryPoint[] = [];
@@ -31,14 +43,17 @@ export function downsampleLTTB(data: TelemetryPoint[], threshold: number): Telem
     let avgRangeEnd = Math.floor((i + 2) * every) + 1;
     avgRangeEnd = avgRangeEnd < data.length ? avgRangeEnd : data.length;
 
-    const avgRangeLength = avgRangeEnd - avgRangeStart;
-
+    let validCount = 0;
     for (; avgRangeStart < avgRangeEnd; avgRangeStart++) {
-      avgX += data[avgRangeStart].time;
-      avgY += data[avgRangeStart].value;
+      const pt = data[avgRangeStart];
+      if (pt && Number.isFinite(pt.value) && Number.isFinite(pt.time)) {
+        avgX += pt.time;
+        avgY += pt.value;
+        validCount++;
+      }
     }
-    avgX /= avgRangeLength || 1;
-    avgY /= avgRangeLength || 1;
+    avgX = validCount > 0 ? avgX / validCount : 0;
+    avgY = validCount > 0 ? avgY / validCount : 0;
 
     // Get the range for this bucket
     let rangeOffs = Math.floor(i * every) + 1;
@@ -46,19 +61,24 @@ export function downsampleLTTB(data: TelemetryPoint[], threshold: number): Telem
 
     // Point a
     const pointAX = data[a].time;
-    const pointAY = data[a].value;
+    const pointAY = Number.isFinite(data[a].value) ? data[a].value : 0;
 
     maxArea = -1;
+    maxAreaPoint = data[rangeOffs] || data[a];
+    nextA = rangeOffs < data.length ? rangeOffs : a;
 
-    for (; rangeOffs < rangeTo; rangeOffs++) {
+    for (; rangeOffs < rangeTo && rangeOffs < data.length; rangeOffs++) {
+      const ptVal = Number.isFinite(data[rangeOffs].value) ? data[rangeOffs].value : 0;
+      const ptTime = data[rangeOffs].time;
+
       // Calculate triangle area over three buckets
       area =
         Math.abs(
-          (pointAX - avgX) * (data[rangeOffs].value - pointAY) -
-            (pointAX - data[rangeOffs].time) * (avgY - pointAY)
+          (pointAX - avgX) * (ptVal - pointAY) -
+            (pointAX - ptTime) * (avgY - pointAY)
         ) * 0.5;
 
-      if (area > maxArea) {
+      if (Number.isFinite(area) && area > maxArea) {
         maxArea = area;
         maxAreaPoint = data[rangeOffs];
         nextA = rangeOffs; // Next a is this b

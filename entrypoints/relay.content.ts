@@ -28,6 +28,14 @@ export default defineContentScript({
               },
               '*'
             );
+          } else if (msg.type === 'QUERY_ACTIVE_STATE') {
+            window.postMessage(
+              {
+                __ws_telemetry__: true,
+                type: 'QUERY_ACTIVE_STATE',
+              },
+              '*'
+            );
           }
         });
 

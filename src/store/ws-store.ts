@@ -291,24 +291,28 @@ export const useWSStore = create<WSStoreState>()(
             nextSelectedId = processedFrames[0].id;
           }
 
-          // 1. Update connections
+          // 1. Update connections (immutable updates preserve object reference integrity)
           const nextConnections = { ...state.connections };
           for (const f of processedFrames) {
-            if (!nextConnections[f.connectionId]) {
+            const existingConn = nextConnections[f.connectionId];
+            if (!existingConn) {
               nextConnections[f.connectionId] = {
                 id: f.connectionId,
                 url: f.connectionId,
                 status: 'open',
-                frameCount: 0,
-                inCount: 0,
-                outCount: 0,
+                frameCount: 1,
+                inCount: f.direction === 'in' ? 1 : 0,
+                outCount: f.direction === 'out' ? 1 : 0,
                 startTime: f.timestamp,
               };
+            } else {
+              nextConnections[f.connectionId] = {
+                ...existingConn,
+                frameCount: existingConn.frameCount + 1,
+                inCount: f.direction === 'in' ? existingConn.inCount + 1 : existingConn.inCount,
+                outCount: f.direction === 'out' ? existingConn.outCount + 1 : existingConn.outCount,
+              };
             }
-            const conn = nextConnections[f.connectionId];
-            conn.frameCount += 1;
-            if (f.direction === 'in') conn.inCount += 1;
-            else conn.outCount += 1;
           }
 
           // 2. Append frames with ring buffer (single-allocation slice-before-concat)
@@ -368,22 +372,22 @@ export const useWSStore = create<WSStoreState>()(
                 const rawVal = extractFrameField(frame, s.fieldPath);
                 let valNum: number | null = null;
 
-                if (typeof rawVal === 'number') {
+                if (typeof rawVal === 'number' && Number.isFinite(rawVal)) {
                   valNum = rawVal;
                 } else if (typeof rawVal === 'string' && rawVal.trim() !== '') {
                   const parsed = parseFloat(rawVal);
-                  if (!isNaN(parsed)) valNum = parsed;
+                  if (!isNaN(parsed) && Number.isFinite(parsed)) valNum = parsed;
                 } else if (Array.isArray(rawVal) && s.subIndex !== undefined) {
                   const subVal = rawVal[s.subIndex];
-                  if (typeof subVal === 'number') {
+                  if (typeof subVal === 'number' && Number.isFinite(subVal)) {
                     valNum = subVal;
                   } else if (typeof subVal === 'string' && subVal.trim() !== '') {
                     const parsed = parseFloat(subVal);
-                    if (!isNaN(parsed)) valNum = parsed;
+                    if (!isNaN(parsed) && Number.isFinite(parsed)) valNum = parsed;
                   }
                 }
 
-                if (valNum !== null && !isNaN(valNum)) {
+                if (valNum !== null && Number.isFinite(valNum)) {
                   lastVal = valNum;
                   lastPointTime = frame.timestamp;
                   newPoints.push({
@@ -483,10 +487,11 @@ export const useWSStore = create<WSStoreState>()(
 
         // Backfill carry-forward values for existing frames
         const currentFrames = get().frames;
+        let updatedFrames = currentFrames;
         if (currentFrames.length > 0) {
           const connLastMap = new Map<string, { value: any; fromId: string }>();
-          for (let i = 0; i < currentFrames.length; i++) {
-            const f = currentFrames[i];
+          let hasCarriedUpdate = false;
+          updatedFrames = currentFrames.map((f) => {
             const connId = f.connectionId || 'default-ws';
             let connLast = connLastMap.get(connId);
 
@@ -494,13 +499,19 @@ export const useWSStore = create<WSStoreState>()(
             if (directVal !== undefined && directVal !== null) {
               connLast = { value: directVal, fromId: f.id };
               connLastMap.set(connId, connLast);
+              return f;
             } else if (connLast) {
-              if (!f.carried) {
-                f.carried = {};
-              }
-              f.carried[newColId] = { ...connLast };
+              hasCarriedUpdate = true;
+              return {
+                ...f,
+                carried: {
+                  ...(f.carried || {}),
+                  [newColId]: { ...connLast },
+                },
+              };
             }
-          }
+            return f;
+          });
 
           // Sync lastKnown back into globalFrameProcessor context for future incoming frames
           for (const [connId, lastVal] of connLastMap.entries()) {
@@ -509,6 +520,7 @@ export const useWSStore = create<WSStoreState>()(
         }
 
         set((state) => ({
+          frames: updatedFrames,
           customColumns: [...state.customColumns, newCol],
         }));
       },
@@ -604,24 +616,24 @@ export const useWSStore = create<WSStoreState>()(
           for (const f of historyFrames) {
             const val = extractFrameField(f, s.fieldPath);
             let num: number | null = null;
-            if (typeof val === 'number') {
+            if (typeof val === 'number' && Number.isFinite(val)) {
               num = val;
             } else if (typeof val === 'string' && val.trim() !== '') {
               const parsed = parseFloat(val);
-              if (!isNaN(parsed)) num = parsed;
+              if (!isNaN(parsed) && Number.isFinite(parsed)) num = parsed;
             } else if (
               Array.isArray(val) &&
               s.subIndex !== undefined
             ) {
               const subVal = val[s.subIndex];
-              if (typeof subVal === 'number') {
+              if (typeof subVal === 'number' && Number.isFinite(subVal)) {
                 num = subVal;
               } else if (typeof subVal === 'string' && subVal.trim() !== '') {
                 const parsed = parseFloat(subVal);
-                if (!isNaN(parsed)) num = parsed;
+                if (!isNaN(parsed) && Number.isFinite(parsed)) num = parsed;
               }
             }
-            if (num !== null && !isNaN(num)) {
+            if (num !== null && Number.isFinite(num)) {
               lastVal = num;
               lastPointTime = f.timestamp;
               s.dataPoints.push({

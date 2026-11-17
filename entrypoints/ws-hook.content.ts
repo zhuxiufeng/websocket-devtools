@@ -74,6 +74,10 @@ export default defineContentScript({
             isBinary = true;
             length = data.byteLength;
             payload = `[Binary ArrayBuffer: ${length} bytes]`;
+          } else if (ArrayBuffer.isView(data)) {
+            isBinary = true;
+            length = data.byteLength;
+            payload = `[Binary ${data.constructor?.name || 'ArrayBufferView'}: ${length} bytes]`;
           } else if (typeof Blob !== 'undefined' && data instanceof Blob) {
             isBinary = true;
             length = data.size;
@@ -138,6 +142,10 @@ export default defineContentScript({
             isBinary = true;
             length = data.byteLength;
             payload = `[Binary ArrayBuffer: ${length} bytes]`;
+          } else if (ArrayBuffer.isView(data)) {
+            isBinary = true;
+            length = data.byteLength;
+            payload = `[Binary ${data.constructor?.name || 'ArrayBufferView'}: ${length} bytes]`;
           } else if (typeof Blob !== 'undefined' && data instanceof Blob) {
             isBinary = true;
             length = data.size;
@@ -259,6 +267,9 @@ export default defineContentScript({
     // Inherit prototype and static properties
     WrappedWebSocket.prototype = NativeWebSocket.prototype;
     Object.setPrototypeOf(WrappedWebSocket, NativeWebSocket);
+    try {
+      NativeWebSocket.prototype.constructor = WrappedWebSocket;
+    } catch {}
     try {
       Object.getOwnPropertyNames(NativeWebSocket).forEach((k) => {
         if (!(k in WrappedWebSocket)) {

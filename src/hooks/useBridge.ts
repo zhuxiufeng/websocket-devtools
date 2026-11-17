@@ -4,6 +4,19 @@ import { MockStreamGenerator } from '../core/mock-stream';
 
 let globalDevToolsPort: chrome.runtime.Port | null = null;
 
+export function clearBridgeBuffer(): void {
+  if (globalDevToolsPort) {
+    try {
+      globalDevToolsPort.postMessage({
+        type: 'CLEAR_BUFFER',
+      });
+      return;
+    } catch {
+      globalDevToolsPort = null;
+    }
+  }
+}
+
 export function sendBridgeMessage(connectionId: string, payload: string): void {
   if (globalDevToolsPort) {
     try {
@@ -53,7 +66,9 @@ export function useBridge() {
   // Always uses setTimeout instead of requestAnimationFrame so that background/unfocused
   // DevTools panel continues smooth stream ingestion without freezing until mouse interaction!
   const enqueueFrames = (frames: any[]) => {
-    queueRef.current.push(...frames);
+    for (let i = 0; i < frames.length; i++) {
+      queueRef.current.push(frames[i]);
+    }
     if (timerRef.current === null) {
       const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
       const elapsed = now - lastFlushTsRef.current;
@@ -126,7 +141,12 @@ export function useBridge() {
         });
 
         port.onMessage.addListener((msg) => {
-          if (msg.type === 'PING') return;
+          if (msg.type === 'PING') {
+            try {
+              port.postMessage({ type: 'PONG' });
+            } catch {}
+            return;
+          }
           if (msg.type === 'CONNECTIONS_SYNC' && Array.isArray(msg.connections)) {
             useWSStore.getState().syncConnections(msg.connections);
           }

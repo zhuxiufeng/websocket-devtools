@@ -15,19 +15,35 @@ export default defineBackground(() => {
   const MAX_TAB_BUFFER = 2000;
 
   // Persist recent tab state to chrome.storage.session so Service Worker termination won't lose buffer
-  let saveTimer: any = null;
+  const saveTimers = new Map<number, any>();
   const debouncedPersistTabSession = (tabId: number) => {
     if (!chrome.storage?.session) return;
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
+    const existingTimer = saveTimers.get(tabId);
+    if (existingTimer) clearTimeout(existingTimer);
+
+    const timer = setTimeout(() => {
+      saveTimers.delete(tabId);
       try {
-        const frames = (tabFrameBuffers.get(tabId) || []).slice(-500);
+        const rawFrames = (tabFrameBuffers.get(tabId) || []).slice(-300);
+        // Quota safeguard: bound total payload size under 3MB to avoid exceeding QUOTA_BYTES
+        let totalBytes = 0;
+        const safeFrames: Partial<WSFrame>[] = [];
+        for (let i = rawFrames.length - 1; i >= 0; i--) {
+          const f = rawFrames[i];
+          const payloadLen = f.payload ? f.payload.length : 0;
+          if (totalBytes + payloadLen > 3 * 1024 * 1024) break;
+          totalBytes += payloadLen;
+          safeFrames.unshift(f);
+        }
+
         const conns = Array.from(tabConnections.get(tabId)?.values() || []);
         chrome.storage.session.set({
-          [`tab_${tabId}`]: { frames, conns, ts: Date.now() },
+          [`tab_${tabId}`]: { frames: safeFrames, conns, ts: Date.now() },
         }).catch(() => {});
       } catch {}
     }, 200);
+
+    saveTimers.set(tabId, timer);
   };
 
   const restoreTabSession = async (tabId: number) => {
@@ -63,6 +79,13 @@ export default defineBackground(() => {
         contentPortsByTab.set(tabId, ports);
       }
       ports.add(port);
+
+      // Proactively query active state from newly connected content script if DevTools panel is already watching
+      if (panelPortsByTab.get(tabId)?.size) {
+        try {
+          port.postMessage({ type: 'QUERY_ACTIVE_STATE' });
+        } catch {}
+      }
 
       let buffer = tabFrameBuffers.get(tabId);
       if (!buffer) {
@@ -112,14 +135,18 @@ export default defineBackground(() => {
               for (const panelPort of watchingPanels) {
                 try {
                   panelPort.postMessage({ type: 'CONNECTIONS_SYNC', connections: updatedConns });
-                } catch {}
+                } catch {
+                  watchingPanels.delete(panelPort);
+                }
               }
             }
             if (newFrames.length > 0) {
               for (const panelPort of watchingPanels) {
                 try {
                   panelPort.postMessage({ type: 'FRAMES_BATCH', frames: newFrames });
-                } catch {}
+                } catch {
+                  watchingPanels.delete(panelPort);
+                }
               }
             }
           }
@@ -153,6 +180,16 @@ export default defineBackground(() => {
       }, 25000);
 
       port.onMessage.addListener((msg) => {
+        if (msg.type === 'PONG') {
+          return;
+        }
+
+        if (msg.type === 'CLEAR_BUFFER' && registeredTabId !== null) {
+          tabFrameBuffers.delete(registeredTabId);
+          chrome.storage?.session?.remove?.(`tab_${registeredTabId}`).catch?.(() => {});
+          return;
+        }
+
         if (msg.type === 'ATTACH' && typeof msg.tabId === 'number') {
           const tabId = msg.tabId;
           registeredTabId = tabId;
@@ -162,6 +199,7 @@ export default defineBackground(() => {
             panels = new Set();
             panelPortsByTab.set(tabId, panels);
           }
+          const alreadyAttached = panels.has(port);
           panels.add(port);
 
           port.postMessage({ type: 'ATTACHED', tabId });
@@ -181,17 +219,29 @@ export default defineBackground(() => {
             }
           };
 
-          // If in-memory state was lost due to Service Worker suspension, restore from chrome.storage.session
-          if (!tabFrameBuffers.has(tabId) || tabFrameBuffers.get(tabId)!.length === 0) {
-            restoreTabSession(tabId).then(() => {
+          // On first attach, restore session if needed and send current state
+          if (!alreadyAttached) {
+            if (!tabFrameBuffers.has(tabId) || tabFrameBuffers.get(tabId)!.length === 0) {
+              restoreTabSession(tabId).then(() => {
+                sendCurrentState();
+              });
+            } else {
               sendCurrentState();
-            });
-          } else {
-            sendCurrentState();
+            }
           }
 
-          // Request active state query to inspected tab content script
+          // Request active state query to inspected tab content script(s)
           chrome.tabs?.sendMessage?.(tabId, { type: 'QUERY_ACTIVE_STATE' }).catch?.(() => {});
+          const contentPorts = contentPortsByTab.get(tabId);
+          if (contentPorts) {
+            for (const cp of contentPorts) {
+              try {
+                cp.postMessage({ type: 'QUERY_ACTIVE_STATE' });
+              } catch {
+                contentPorts.delete(cp);
+              }
+            }
+          }
         } else if (msg.type === 'SEND_FRAME' && registeredTabId !== null) {
           // Forward message injection request to content script(s) of the inspected tab
           const contentPorts = contentPortsByTab.get(registeredTabId);
@@ -204,7 +254,7 @@ export default defineBackground(() => {
                   payload: msg.payload,
                 });
               } catch {
-                // Ignore failure
+                contentPorts.delete(contentPort);
               }
             }
           }
@@ -233,8 +283,43 @@ export default defineBackground(() => {
     }
   });
 
+  // Handle inspected page reload/navigation: close open connections on navigating tab
+  chrome.tabs?.onUpdated?.addListener((tabId, changeInfo) => {
+    if (changeInfo.status === 'loading') {
+      const connMap = tabConnections.get(tabId);
+      if (connMap) {
+        let changed = false;
+        for (const conn of connMap.values()) {
+          if (conn.status === 'open') {
+            conn.status = 'closed';
+            conn.closedAt = Date.now();
+            changed = true;
+          }
+        }
+        if (changed) {
+          const watchingPanels = panelPortsByTab.get(tabId);
+          if (watchingPanels && watchingPanels.size > 0) {
+            const conns = Array.from(connMap.values());
+            for (const panelPort of watchingPanels) {
+              try {
+                panelPort.postMessage({ type: 'CONNECTIONS_SYNC', connections: conns });
+              } catch {
+                watchingPanels.delete(panelPort);
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
   // Clean up tab memory on tab close
   chrome.tabs?.onRemoved?.addListener((tabId) => {
+    const timer = saveTimers.get(tabId);
+    if (timer) {
+      clearTimeout(timer);
+      saveTimers.delete(tabId);
+    }
     tabFrameBuffers.delete(tabId);
     tabConnections.delete(tabId);
     panelPortsByTab.delete(tabId);

@@ -152,7 +152,10 @@ export function extractFrameField(frame: WSFrame, path: string): any {
     }
   }
 
-  frame.cachedExtractions[path] = value;
+  // Bound cache size to prevent memory leaks from continuous search typing
+  if (Object.keys(frame.cachedExtractions).length < 50) {
+    frame.cachedExtractions[path] = value;
+  }
   return value;
 }
 
@@ -207,8 +210,8 @@ export function evaluateMathFormula(
 ): number | undefined {
   if (!formula || typeof formula !== 'string') return undefined;
 
-  // Replace variable identifiers with resolved numbers
-  const varRegex = /[a-zA-Z_][a-zA-Z0-9_\.]*/g;
+  // Replace variable identifiers with resolved numbers (exclude scientific notation numbers like 1e-3)
+  const varRegex = /(?<![\d\.])[a-zA-Z_][a-zA-Z0-9_\.]*/g;
   let hasMissingVar = false;
 
   // Functions supported
@@ -236,7 +239,7 @@ export function evaluateMathFormula(
   try {
     const jsExpr = replaced.replace(/\^/g, '**');
     const result = new Function(`"use strict"; return (${jsExpr})`)();
-    return typeof result === 'number' && !isNaN(result) ? result : undefined;
+    return typeof result === 'number' && Number.isFinite(result) ? result : undefined;
   } catch {
     return undefined;
   }

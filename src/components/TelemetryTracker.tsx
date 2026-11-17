@@ -34,13 +34,15 @@ export const TelemetryTracker: React.FC = () => {
   const latestFrameTs = useWSStore((s) => s.frames[s.frames.length - 1]?.timestamp ?? 0);
   const selectedFrameId = useWSStore((s) => s.selectedFrameId);
   const jumpToFrameId = useWSStore((s) => s.jumpToFrameId);
-  const frames = useWSStore((s) => s.frames);
   const setHoveredTelemetryFrameId = useWSStore((s) => s.setHoveredTelemetryFrameId);
 
-  const selectedFrame = useMemo(
-    () => (selectedFrameId ? frames.find((f) => f.id === selectedFrameId) : null),
-    [frames, selectedFrameId]
-  );
+  // Directly select the frame object; Object.is reference equality prevents re-renders on unrelated incoming frames
+  const selectedFrame = useWSStore((s) => {
+    if (!s.selectedFrameId) return null;
+    return s.frames.find((f) => f.id === s.selectedFrameId) || null;
+  });
+
+  const lastHoveredFrameIdRef = useRef<string | null>(null);
 
   const [windowSize, setWindowSize] = useState<number>(100);
   const [isMaximized, setIsMaximized] = useState<boolean>(false);
@@ -139,28 +141,34 @@ export const TelemetryTracker: React.FC = () => {
       maxTime = zoomRange.maxTime;
       slicedSeries.forEach((s) => {
         s.dataPoints.forEach((p) => {
-          if (p.value < globalMin) globalMin = p.value;
-          if (p.value > globalMax) globalMax = p.value;
+          if (Number.isFinite(p.value)) {
+            if (p.value < globalMin) globalMin = p.value;
+            if (p.value > globalMax) globalMax = p.value;
+          }
         });
       });
     } else {
       slicedSeries.forEach((s) => {
         s.dataPoints.forEach((p) => {
-          if (p.value < globalMin) globalMin = p.value;
-          if (p.value > globalMax) globalMax = p.value;
-          if (p.time < minTime) minTime = p.time;
-          if (p.time > maxTime) maxTime = p.time;
+          if (Number.isFinite(p.value)) {
+            if (p.value < globalMin) globalMin = p.value;
+            if (p.value > globalMax) globalMax = p.value;
+          }
+          if (Number.isFinite(p.time)) {
+            if (p.time < minTime) minTime = p.time;
+            if (p.time > maxTime) maxTime = p.time;
+          }
         });
       });
 
       // Anchor live maxTime to the latest incoming frame timestamp so that the time-axis
       // always rolls forward continuously even if a metric is temporarily unchanged
-      if (latestFrameTs > maxTime) {
+      if (Number.isFinite(latestFrameTs) && latestFrameTs > maxTime) {
         maxTime = latestFrameTs;
       }
     }
 
-    if (globalMin === Infinity) {
+    if (!Number.isFinite(globalMin) || !Number.isFinite(globalMax) || globalMin === Infinity) {
       globalMin = 0;
       globalMax = 100;
     } else if (globalMin === globalMax) {
@@ -192,6 +200,7 @@ export const TelemetryTracker: React.FC = () => {
         return {
           series: s,
           path: '',
+          singlePointDot: null,
           currentVal: null,
           sMin: 0,
           sMax: 100,
@@ -206,36 +215,44 @@ export const TelemetryTracker: React.FC = () => {
       let realMin = Infinity;
       let realMax = -Infinity;
       let sum = 0;
+      let finiteCount = 0;
       s.dataPoints.forEach((p) => {
-        if (p.value < realMin) realMin = p.value;
-        if (p.value > realMax) realMax = p.value;
-        sum += p.value;
+        if (Number.isFinite(p.value)) {
+          if (p.value < realMin) realMin = p.value;
+          if (p.value > realMax) realMax = p.value;
+          sum += p.value;
+          finiteCount++;
+        }
       });
-      const realAvg = s.dataPoints.length > 0 ? sum / s.dataPoints.length : 0;
-      const realSpan = s.dataPoints.length > 0 ? realMax - realMin : 0;
+      const realAvg = finiteCount > 0 ? sum / finiteCount : 0;
+      const realSpan = finiteCount > 0 && Number.isFinite(realMax - realMin) ? realMax - realMin : 0;
 
-      let sMin = Infinity;
-      let sMax = -Infinity;
+      let sMin = 0;
+      let sMax = 100;
       if (scaleMode === 'autofit') {
-        sMin = realMin;
-        sMax = realMax;
-        if (sMin === sMax) {
-          sMin -= 0.5;
-          sMax += 0.5;
-        } else {
-          const pad = (sMax - sMin) * 0.15;
-          sMin -= pad;
-          sMax += pad;
+        if (finiteCount > 0 && Number.isFinite(realMin) && Number.isFinite(realMax)) {
+          sMin = realMin;
+          sMax = realMax;
+          if (sMin === sMax) {
+            sMin -= 0.5;
+            sMax += 0.5;
+          } else {
+            const pad = (sMax - sMin) * 0.15;
+            sMin -= pad;
+            sMax += pad;
+          }
         }
       } else {
         sMin = globalMin;
         sMax = globalMax;
       }
 
-      const sRange = sMax - sMin || 1;
+      let sRange = sMax - sMin;
+      if (!Number.isFinite(sRange) || sRange <= 0) sRange = 1;
 
       // Pixel-level decimation: downsample points falling onto the same screen pixel
       const points: string[] = [];
+      let singlePointDot: { x: number; y: number } | null = null;
       let lastPixelX = -999;
       let minPixelY = Infinity;
       let maxPixelY = -Infinity;
@@ -244,11 +261,12 @@ export const TelemetryTracker: React.FC = () => {
         const p = s.dataPoints[0];
         const progress = timeSpan > 0 ? (p.time - minTime) / timeSpan : 0;
         const x = padding.left + progress * plotW;
-        const normalizedY = (p.value - sMin) / sRange;
+        const normalizedY = Number.isFinite(p.value) ? (p.value - sMin) / sRange : 0.5;
         const y = padding.top + (1 - normalizedY) * plotH;
-        points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
-        // If live time is ahead, extend horizontal line to maxTime
-        if (!zoomRange && timeSpan > 0 && maxTime > p.time) {
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+          singlePointDot = { x, y };
+          points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+          // Always extend horizontal line across the plot for 1-point series so it visually renders as a baseline
           const xEnd = padding.left + plotW;
           points.push(`${xEnd.toFixed(1)},${y.toFixed(1)}`);
         }
@@ -257,8 +275,9 @@ export const TelemetryTracker: React.FC = () => {
           const p = s.dataPoints[idx];
           const progress = timeSpan > 0 ? (p.time - minTime) / timeSpan : idx / Math.max(1, maxPoints - 1);
           const x = padding.left + progress * plotW;
-          const normalizedY = (p.value - sMin) / sRange;
+          const normalizedY = Number.isFinite(p.value) ? (p.value - sMin) / sRange : 0.5;
           const y = padding.top + (1 - normalizedY) * plotH;
+          if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
           const currentPixelX = Math.round(x);
 
           if (idx === 0 || idx === s.dataPoints.length - 1) {
@@ -273,7 +292,7 @@ export const TelemetryTracker: React.FC = () => {
             if (y < minPixelY) minPixelY = y;
             if (y > maxPixelY) maxPixelY = y;
           } else {
-            if (minPixelY !== maxPixelY && minPixelY !== Infinity) {
+            if (minPixelY !== maxPixelY && minPixelY !== Infinity && Number.isFinite(minPixelY) && Number.isFinite(maxPixelY)) {
               points.push(`${lastPixelX.toFixed(1)},${minPixelY.toFixed(1)}`);
               points.push(`${lastPixelX.toFixed(1)},${maxPixelY.toFixed(1)}`);
             }
@@ -285,12 +304,14 @@ export const TelemetryTracker: React.FC = () => {
         }
 
         // Real-time projection: extend the line horizontally to the live edge if unchanged
-        if (!zoomRange && timeSpan > 0) {
+        if (!zoomRange && timeSpan > 0 && s.dataPoints.length > 0) {
           const lastP = s.dataPoints[s.dataPoints.length - 1];
-          if (maxTime > lastP.time) {
+          if (maxTime > lastP.time && Number.isFinite(lastP.value)) {
             const lastY = padding.top + (1 - (lastP.value - sMin) / sRange) * plotH;
             const xEnd = padding.left + plotW;
-            points.push(`${xEnd.toFixed(1)},${lastY.toFixed(1)}`);
+            if (Number.isFinite(lastY)) {
+              points.push(`${xEnd.toFixed(1)},${lastY.toFixed(1)}`);
+            }
           }
         }
       }
@@ -298,6 +319,7 @@ export const TelemetryTracker: React.FC = () => {
       return {
         series: s,
         path: points.length > 0 ? `M ${points.join(' L ')}` : '',
+        singlePointDot,
         currentVal: s.dataPoints[s.dataPoints.length - 1]?.value ?? null,
         sMin,
         sMax,
@@ -325,6 +347,7 @@ export const TelemetryTracker: React.FC = () => {
 
     // Y-Axis Ticks & Units
     const formatVal = (v: number) => {
+      if (!Number.isFinite(v)) return '-';
       if (Math.abs(v) >= 100 || Number.isInteger(v)) return v.toFixed(0);
       return v.toFixed(1);
     };
@@ -338,11 +361,11 @@ export const TelemetryTracker: React.FC = () => {
       left: {
         unit: s0Unit,
         color: scaleMode === 'autofit' ? (slicedSeries[0]?.color || '#888888') : '#888888',
-        ticks: [
+        ticks: Number.isFinite(s0Min) && Number.isFinite(s0Max) ? [
           { val: s0Max, y: padding.top, label: `${formatVal(s0Max)}${s0Unit}` },
           { val: s0Mid, y: padding.top + plotH / 2, label: `${formatVal(s0Mid)}${s0Unit}` },
           { val: s0Min, y: padding.top + plotH, label: `${formatVal(s0Min)}${s0Unit}` },
-        ],
+        ] : [],
       },
       right: {
         unit: extractExplicitUnit(slicedSeries[1]?.label || ''),
@@ -356,11 +379,13 @@ export const TelemetryTracker: React.FC = () => {
       const s1Max = seriesPaths[1].sMax;
       const s1Mid = (s1Min + s1Max) / 2;
       const s1Unit = extractExplicitUnit(slicedSeries[1]?.label || '');
-      yAxisTicks.right.ticks = [
-        { val: s1Max, y: padding.top, label: `${formatVal(s1Max)}${s1Unit}` },
-        { val: s1Mid, y: padding.top + plotH / 2, label: `${formatVal(s1Mid)}${s1Unit}` },
-        { val: s1Min, y: padding.top + plotH, label: `${formatVal(s1Min)}${s1Unit}` },
-      ];
+      if (Number.isFinite(s1Min) && Number.isFinite(s1Max)) {
+        yAxisTicks.right.ticks = [
+          { val: s1Max, y: padding.top, label: `${formatVal(s1Max)}${s1Unit}` },
+          { val: s1Mid, y: padding.top + plotH / 2, label: `${formatVal(s1Mid)}${s1Unit}` },
+          { val: s1Min, y: padding.top + plotH, label: `${formatVal(s1Min)}${s1Unit}` },
+        ];
+      }
     }
 
     return {
@@ -384,10 +409,10 @@ export const TelemetryTracker: React.FC = () => {
 
   // Synchronized scrubber position for the currently selected frame in the Table
   const selectedFrameX = useMemo(() => {
-    if (!chartData || !selectedFrame || chartData.timeSpan <= 0) return null;
+    if (!chartData || !selectedFrame) return null;
     const ts = selectedFrame.timestamp;
     if (ts < chartData.minTime || ts > chartData.maxTime) return null;
-    const progress = (ts - chartData.minTime) / chartData.timeSpan;
+    const progress = chartData.timeSpan > 0 ? (ts - chartData.minTime) / chartData.timeSpan : 0;
     return chartData.padding.left + progress * chartData.plotW;
   }, [chartData, selectedFrame]);
 
@@ -411,6 +436,47 @@ export const TelemetryTracker: React.FC = () => {
     setDragSelect({ startX: clampedX, currentX: clampedX });
   };
 
+  // Handle Box Zoom mouseup and mousemove on window when drag selection is active
+  useEffect(() => {
+    if (!dragSelect) return;
+
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      if (!chartData || !svgRef.current) return;
+      const rect = svgRef.current.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const relX = (mouseX / rect.width) * chartData.width;
+      const clampedX = Math.max(chartData.padding.left, Math.min(chartData.width - chartData.padding.right, relX));
+      setDragSelect((prev) => (prev ? { ...prev, currentX: clampedX } : null));
+    };
+
+    const handleWindowMouseUp = () => {
+      if (dragSelect && chartData && chartData.timeSpan > 0) {
+        const x1 = Math.min(dragSelect.startX, dragSelect.currentX);
+        const x2 = Math.max(dragSelect.startX, dragSelect.currentX);
+        const width = x2 - x1;
+
+        if (width > 15) {
+          const progress1 = Math.max(0, Math.min(1, (x1 - chartData.padding.left) / chartData.plotW));
+          const progress2 = Math.max(0, Math.min(1, (x2 - chartData.padding.left) / chartData.plotW));
+          const t1 = Math.round(chartData.minTime + progress1 * chartData.timeSpan);
+          const t2 = Math.round(chartData.minTime + progress2 * chartData.timeSpan);
+
+          if (t2 - t1 > 50) {
+            setZoomRange({ minTime: t1, maxTime: t2 });
+          }
+        }
+      }
+      setDragSelect(null);
+    };
+
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+    };
+  }, [dragSelect, chartData]);
+
   // Handle Crosshair Mouse Move or Box Zoom Drag
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!chartData || !svgRef.current) return;
@@ -425,47 +491,57 @@ export const TelemetryTracker: React.FC = () => {
       return;
     }
 
-    if (chartData.maxPoints < 2) return;
+    if (chartData.maxPoints < 1) return;
 
-    const progress = (clampedX - chartData.padding.left) / chartData.plotW;
-
-    // Find nearest point across series
-    let bestIdx = 0;
-    let bestDist = Infinity;
+    const progress = chartData.plotW > 0 ? (clampedX - chartData.padding.left) / chartData.plotW : 0;
     const targetTime = chartData.minTime + progress * chartData.timeSpan;
 
-    const firstSeries = chartData.slicedSeries[0];
-    if (firstSeries && firstSeries.dataPoints.length > 0) {
-      firstSeries.dataPoints.forEach((p, idx) => {
+    // Find nearest point across all series independently
+    let nearestFrameId: string | undefined;
+    let nearestFrameSeq: number | undefined;
+    let nearestTimeFormatted = '';
+    let minOverallDist = Infinity;
+
+    const values = chartData.slicedSeries.map((s) => {
+      if (s.dataPoints.length === 0) {
+        return { label: s.label, value: 0, color: s.color };
+      }
+      let bestIdx = 0;
+      let bestDist = Infinity;
+      s.dataPoints.forEach((p, idx) => {
         const dist = Math.abs(p.time - targetTime);
         if (dist < bestDist) {
           bestDist = dist;
           bestIdx = idx;
         }
       });
-    }
-
-    const values = chartData.slicedSeries.map((s) => ({
-      label: s.label,
-      value: s.dataPoints[bestIdx]?.value ?? 0,
-      color: s.color,
-    }));
-
-    const nearestPoint = firstSeries?.dataPoints[bestIdx];
-    const time = nearestPoint?.formattedTime || '';
+      const pt = s.dataPoints[bestIdx];
+      if (bestDist < minOverallDist && pt) {
+        minOverallDist = bestDist;
+        nearestFrameId = pt.frameId;
+        nearestFrameSeq = pt.frameSeq;
+        nearestTimeFormatted = pt.formattedTime;
+      }
+      return {
+        label: s.label,
+        value: pt?.value ?? 0,
+        color: s.color,
+      };
+    });
 
     setHoverPoint({
-      index: bestIdx,
+      index: 0,
       x: clampedX,
       y: e.clientY - rect.top,
-      time,
-      frameId: nearestPoint?.frameId,
-      frameSeq: nearestPoint?.frameSeq,
+      time: nearestTimeFormatted,
+      frameId: nearestFrameId,
+      frameSeq: nearestFrameSeq,
       values,
     });
 
-    if (nearestPoint?.frameId) {
-      setHoveredTelemetryFrameId(nearestPoint.frameId);
+    if (nearestFrameId && nearestFrameId !== lastHoveredFrameIdRef.current) {
+      lastHoveredFrameIdRef.current = nearestFrameId;
+      setHoveredTelemetryFrameId(nearestFrameId);
     }
   };
 
@@ -475,14 +551,13 @@ export const TelemetryTracker: React.FC = () => {
     }
   };
 
-  // Box Zoom Mouse Up
+  // Box Zoom Mouse Up (local fallback)
   const handleMouseUp = () => {
     if (dragSelect && chartData && chartData.timeSpan > 0) {
       const x1 = Math.min(dragSelect.startX, dragSelect.currentX);
       const x2 = Math.max(dragSelect.startX, dragSelect.currentX);
       const width = x2 - x1;
 
-      // Only zoom if dragged more than 15px
       if (width > 15) {
         const progress1 = Math.max(0, Math.min(1, (x1 - chartData.padding.left) / chartData.plotW));
         const progress2 = Math.max(0, Math.min(1, (x2 - chartData.padding.left) / chartData.plotW));
@@ -894,7 +969,10 @@ export const TelemetryTracker: React.FC = () => {
               onMouseLeave={() => {
                 setHoverPoint(null);
                 setDragSelect(null);
-                setHoveredTelemetryFrameId(null);
+                if (lastHoveredFrameIdRef.current !== null) {
+                  lastHoveredFrameIdRef.current = null;
+                  setHoveredTelemetryFrameId(null);
+                }
               }}
             >
               {/* Horizontal Grid Lines */}
@@ -1075,27 +1153,38 @@ export const TelemetryTracker: React.FC = () => {
               )}
 
               {/* Series Curves */}
-              {chartData.seriesPaths.map(({ series, path }) =>
-                path ? (
-                  <path
-                    key={series.id}
-                    d={path}
-                    fill="none"
-                    stroke={series.color}
-                    strokeWidth={
-                      focusedSeriesId === series.id
-                        ? isMaximized ? '3.5' : '3'
-                        : isMaximized ? '2.5' : '1.8'
-                    }
-                    strokeOpacity={
-                      focusedSeriesId && focusedSeriesId !== series.id ? 0.2 : 1
-                    }
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="transition-all duration-150"
-                  />
-                ) : null
-              )}
+              {chartData.seriesPaths.map(({ series, path, singlePointDot }) => (
+                <React.Fragment key={series.id}>
+                  {path && (
+                    <path
+                      d={path}
+                      fill="none"
+                      stroke={series.color}
+                      strokeWidth={
+                        focusedSeriesId === series.id
+                          ? isMaximized ? '3.5' : '3'
+                          : isMaximized ? '2.5' : '1.8'
+                      }
+                      strokeOpacity={
+                        focusedSeriesId && focusedSeriesId !== series.id ? 0.2 : 1
+                      }
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="transition-all duration-150"
+                    />
+                  )}
+                  {singlePointDot && (
+                    <circle
+                      cx={singlePointDot.x}
+                      cy={singlePointDot.y}
+                      r="3.5"
+                      fill={series.color}
+                      stroke="#ffffff"
+                      strokeWidth="1"
+                    />
+                  )}
+                </React.Fragment>
+              ))}
             </svg>
           )}
         </div>

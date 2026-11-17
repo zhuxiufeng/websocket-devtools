@@ -61,7 +61,8 @@ function parseSingleCriteria(rawQuery: string): FilterCriteria {
       const regMatch = token.match(/^!\/([^\/]+)\/([gimsuy]*)$/);
       if (regMatch) {
         try {
-          criteria.excludeRegexes.push(new RegExp(regMatch[1], regMatch[2] || 'i'));
+          const cleanFlags = (regMatch[2] || 'i').replace(/[gy]/g, '');
+          criteria.excludeRegexes.push(new RegExp(regMatch[1], cleanFlags));
           continue;
         } catch {
           // Fallback to text exclusion
@@ -119,7 +120,8 @@ function parseSingleCriteria(rawQuery: string): FilterCriteria {
       const regMatch = token.match(/^\/([^\/]+)\/([gimsuy]*)$/);
       if (regMatch) {
         try {
-          criteria.regexes.push(new RegExp(regMatch[1], regMatch[2] || 'i'));
+          const cleanFlags = (regMatch[2] || 'i').replace(/[gy]/g, '');
+          criteria.regexes.push(new RegExp(regMatch[1], cleanFlags));
           continue;
         } catch {
           // Fallback to text match
@@ -200,6 +202,7 @@ function matchesSingleFilter(frame: WSFrame, criteria: FilterCriteria): boolean 
 
   // 3. Exclude regexes
   for (const reg of criteria.excludeRegexes) {
+    reg.lastIndex = 0;
     if (reg.test(frame.payload || '')) {
       return false;
     }
@@ -243,9 +246,13 @@ function matchesSingleFilter(frame: WSFrame, criteria: FilterCriteria): boolean 
       // Dynamic JSON extraction
       const extracted = extractFrameField(frame, field);
       if (extracted !== undefined && extracted !== null) {
-        const num = Number(extracted);
-        if (!isNaN(num)) {
-          rawNum = num;
+        if (typeof extracted === 'number') {
+          rawNum = extracted;
+        } else if (typeof extracted === 'string' && extracted.trim() !== '') {
+          const num = Number(extracted);
+          if (!isNaN(num)) {
+            rawNum = num;
+          }
         }
       }
     }
@@ -261,6 +268,7 @@ function matchesSingleFilter(frame: WSFrame, criteria: FilterCriteria): boolean 
 
   // 7. Regexes
   for (const reg of criteria.regexes) {
+    reg.lastIndex = 0;
     if (!reg.test(frame.payload || '')) {
       return false;
     }

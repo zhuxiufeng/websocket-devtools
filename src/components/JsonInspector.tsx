@@ -226,14 +226,24 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({ onClose }) => {
   }, [selectedFrame, viewMode, effectiveJsonPayload]);
 
   useEffect(() => {
+    return () => {
+      if (searchDebounceRef.current !== null) {
+        clearTimeout(searchDebounceRef.current);
+        searchDebounceRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!contextMenu.visible) return;
     const handleOutsideClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setContextMenu((prev) => ({ ...prev, visible: false }));
       }
     };
-    window.addEventListener('click', handleOutsideClick);
-    return () => window.removeEventListener('click', handleOutsideClick);
-  }, []);
+    window.addEventListener('mousedown', handleOutsideClick);
+    return () => window.removeEventListener('mousedown', handleOutsideClick);
+  }, [contextMenu.visible]);
 
   const handleCopyJson = () => {
     if (!selectedFrame) return;
@@ -357,7 +367,7 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({ onClose }) => {
       {/* Header with Freeze/Follow Controls */}
       <div className="h-8 px-3 bg-[#252526] border-b border-[#3c3c3c] flex items-center justify-between select-none shrink-0 gap-2 overflow-hidden">
         {/* Frame Info */}
-        <div className="flex items-center gap-1.5 min-w-0 shrink-0">
+        <div className="flex items-center gap-1.5 min-w-0">
           <span className="font-semibold text-[#cccccc] shrink-0">
             Frame #{selectedFrame.seq ?? selectedFrame.id.replace('frame-', '')}
           </span>
@@ -379,7 +389,7 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({ onClose }) => {
             )}
           </span>
           <span
-            className="text-[#888888] font-mono text-[11px] shrink-0 select-text cursor-default"
+            className="text-[#888888] font-mono text-[11px] truncate select-text cursor-default"
             title={`Timestamp: ${selectedFrame.timeFormatted}${selectedFrame.timestamp ? ` (${new Date(selectedFrame.timestamp).toLocaleTimeString()})` : ''}`}
           >
             {selectedFrame.timeFormatted}

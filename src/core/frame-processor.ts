@@ -223,8 +223,8 @@ export class FrameProcessor {
           }
         }
         // Detect Response or Error
-        else if (jsonPayload.id !== undefined && (jsonPayload.result !== undefined || jsonPayload.error !== undefined)) {
-          rpcKind = jsonPayload.error !== undefined ? 'error' : 'response';
+        else if (jsonPayload.id !== undefined && (jsonPayload.result !== undefined || jsonPayload.error != null)) {
+          rpcKind = jsonPayload.error != null ? 'error' : 'response';
           rpcId = jsonPayload.id;
 
           const reqKey = `${connId}:${rpcId}`;

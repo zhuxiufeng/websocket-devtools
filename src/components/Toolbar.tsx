@@ -36,6 +36,7 @@ import {
   downloadCsvFile,
 } from '../core/trace-io';
 import { matchesFilter } from '../core/filter-engine';
+import { clearBridgeBuffer } from '../hooks/useBridge';
 import { MethodStatsModal } from './MethodStatsModal';
 import { ExportColumnsModal } from './ExportColumnsModal';
 
@@ -106,6 +107,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   useEffect(() => {
     setLocalQuery(filterQuery);
   }, [filterQuery]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current !== null) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const handleQueryChange = (val: string) => {
     setLocalQuery(val);
@@ -258,7 +268,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       {/* Row 1: Primary Controls & Filter */}
       <div className="h-10 px-3 flex items-center justify-between gap-3 border-b border-[#333333]">
         {/* Left: Actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           {/* Toggle Connections Sidebar */}
           {onToggleLeftSidebar && (
             <button
@@ -304,7 +314,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
           {/* Clear */}
           <button
-            onClick={clearFrames}
+            onClick={() => {
+              clearFrames();
+              clearBridgeBuffer();
+            }}
             className="p-1.5 bg-[#2d2d2d] hover:bg-[#383838] text-[#aaaaaa] hover:text-white rounded border border-[#444444] transition-colors"
             title="Clear all frames"
           >
@@ -696,7 +709,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </div>
 
         {/* Right: Custom Columns & Visual Tracker */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {/* Add Column Button */}
           <button
             onClick={() => setColumnModalOpen(true)}

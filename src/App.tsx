@@ -63,6 +63,18 @@ export const App: React.FC = () => {
   // Initialize data stream bridge
   useBridge();
 
+  // Clamp inspectorWidth when window size shrinks to prevent crushing middle table
+  useEffect(() => {
+    const handleWindowResize = () => {
+      setInspectorWidth((prev) => {
+        const maxWidth = Math.max(280, window.innerWidth - 360);
+        return Math.min(prev, maxWidth);
+      });
+    };
+    window.addEventListener('resize', handleWindowResize);
+    return () => window.removeEventListener('resize', handleWindowResize);
+  }, []);
+
   useEffect(() => {
     if (!isResizingInspector) return;
     const handleMouseMove = (e: MouseEvent) => {
