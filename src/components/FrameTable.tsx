@@ -91,7 +91,10 @@ const FrameRow = React.memo<FrameRowProps>(({
       </div>
 
       {/* Time */}
-      <div className="w-28 px-2 text-[#999999] shrink-0 truncate border-r border-[#2d2d2d]/50 font-mono">
+      <div
+        className="w-28 px-2 text-[#999999] shrink-0 truncate border-r border-[#2d2d2d]/50 font-mono"
+        title={frame.timeFormatted}
+      >
         {frame.timeFormatted}
       </div>
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useWSStore } from '../src/store/ws-store';
-import { FrameProcessor } from '../src/core/frame-processor';
+import { FrameProcessor, formatTimestamp } from '../src/core/frame-processor';
 import { parseFilterQuery, matchesFilter } from '../src/core/filter-engine';
 import { extractField } from '../src/core/field-extractor';
 import { highlightSearchText, subtreeHasMatch } from '../src/components/JsonInspector';
@@ -382,6 +382,33 @@ describe('Comprehensive Self-Test & Edge Case Audit Suite', () => {
     // Reset back to default
     store.setMaxFrames(10000);
     expect(useWSStore.getState().maxFrames).toBe(10000);
+  });
+
+  it('12. Timestamp formatting: strictly outputs HH:mm:ss.SSS with full padding and preserves integrity', () => {
+    // Test a specific timestamp: 2026-11-17 20:07:05.008
+    const date = new Date(2026, 10, 17, 20, 7, 5, 8);
+    const formatted = formatTimestamp(date.getTime());
+    expect(formatted).toBe('20:07:05.008');
+
+    // Test zero padding for single digit hour, min, sec, ms
+    const earlyMorning = new Date(2026, 10, 17, 3, 2, 1, 5);
+    const formattedEarly = formatTimestamp(earlyMorning.getTime());
+    expect(formattedEarly).toBe('03:02:01.005');
+
+    // Ingest into frame processor and verify frame.timeFormatted
+    const processor = new FrameProcessor();
+    const processed = processor.ingestBatch(
+      [
+        {
+          id: 'test-ts',
+          timestamp: date.getTime(),
+          payload: '{"test": true}',
+        },
+      ],
+      []
+    );
+
+    expect(processed[0].timeFormatted).toBe('20:07:05.008');
   });
 });
 

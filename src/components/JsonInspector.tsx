@@ -355,14 +355,14 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({ onClose }) => {
       }}
     >
       {/* Header with Freeze/Follow Controls */}
-      <div className="h-8 px-3 bg-[#252526] border-b border-[#3c3c3c] flex items-center justify-between select-none shrink-0 gap-2">
+      <div className="h-8 px-3 bg-[#252526] border-b border-[#3c3c3c] flex items-center justify-between select-none shrink-0 gap-2 overflow-hidden">
         {/* Frame Info */}
-        <div className="flex items-center gap-1.5 truncate">
-          <span className="font-semibold text-[#cccccc]">
+        <div className="flex items-center gap-1.5 min-w-0 shrink-0">
+          <span className="font-semibold text-[#cccccc] shrink-0">
             Frame #{selectedFrame.seq ?? selectedFrame.id.replace('frame-', '')}
           </span>
           <span
-            className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center gap-0.5 ${
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center gap-0.5 shrink-0 ${
               selectedFrame.direction === 'in'
                 ? 'bg-emerald-950/70 text-emerald-400 border border-emerald-800'
                 : 'bg-amber-950/70 text-amber-400 border border-amber-800'
@@ -378,11 +378,16 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({ onClose }) => {
               </>
             )}
           </span>
-          <span className="text-[#888888] font-mono text-[11px]">{selectedFrame.timeFormatted}</span>
+          <span
+            className="text-[#888888] font-mono text-[11px] shrink-0 select-text cursor-default"
+            title={`Timestamp: ${selectedFrame.timeFormatted}${selectedFrame.timestamp ? ` (${new Date(selectedFrame.timestamp).toLocaleTimeString()})` : ''}`}
+          >
+            {selectedFrame.timeFormatted}
+          </span>
         </div>
 
         {/* Freeze / Follow Status & Actions */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
           <button
             onClick={() => setFollowLatest(!followLatest)}
             className={`px-2 py-0.5 rounded text-[10px] font-medium border flex items-center gap-1.5 transition-colors ${
@@ -393,7 +398,7 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({ onClose }) => {
             title={
               followLatest
                 ? 'Currently auto-following latest incoming frame (Click to freeze on current frame)'
-                : 'Locked/Frozen on this frame (Click to resume live tail)'
+                : `Locked/Frozen on Frame #${selectedFrame.seq ?? selectedFrame.id.replace('frame-', '')} (Click to resume live tail)`
             }
           >
             {followLatest ? (
@@ -405,7 +410,7 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({ onClose }) => {
               <>
                 <Lock className="w-2.5 h-2.5 text-amber-400 shrink-0" />
                 <span className="font-semibold text-amber-300">
-                  锁定检视 #{selectedFrame.seq ?? selectedFrame.id.replace('frame-', '')}
+                  锁定检视
                 </span>
               </>
             )}
@@ -418,7 +423,7 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({ onClose }) => {
             title="Jump inspection to first frame (Shortcut: Home)"
           >
             <ArrowUp className="w-2.5 h-2.5" />
-            <span>First</span>
+            <span className="hidden sm:inline">First</span>
           </button>
 
           {/* Jump to Latest Frame button */}
@@ -428,7 +433,7 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({ onClose }) => {
             title="Jump inspection to latest received frame (Shortcut: End)"
           >
             <ArrowDown className="w-2.5 h-2.5" />
-            <span>Latest</span>
+            <span className="hidden sm:inline">Latest</span>
           </button>
 
           {/* Copy Payload */}
@@ -438,14 +443,14 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({ onClose }) => {
             title="Copy raw JSON payload"
           >
             {copied ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
-            <span>{copied ? 'Copied' : 'Copy'}</span>
+            <span className="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
           </button>
 
           {/* Close / Collapse Inspector Panel */}
           {onClose && (
             <button
               onClick={onClose}
-              className="p-1 text-[#888888] hover:text-white hover:bg-[#333333] rounded transition-colors ml-1"
+              className="p-1 text-[#888888] hover:text-white hover:bg-[#333333] rounded transition-colors ml-0.5"
               title="Collapse Inspector Panel (Shortcut: ] )"
             >
               <PanelRightClose className="w-3.5 h-3.5" />
