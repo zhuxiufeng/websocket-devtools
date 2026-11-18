@@ -17,6 +17,33 @@ export function clearBridgeBuffer(): void {
   }
 }
 
+export function purgeBridgeConnections(): void {
+  if (globalDevToolsPort) {
+    try {
+      globalDevToolsPort.postMessage({
+        type: 'PURGE_CONNECTIONS',
+      });
+      return;
+    } catch {
+      globalDevToolsPort = null;
+    }
+  }
+}
+
+export function removeBridgeConnection(connectionId: string): void {
+  if (globalDevToolsPort) {
+    try {
+      globalDevToolsPort.postMessage({
+        type: 'REMOVE_CONNECTION',
+        connectionId,
+      });
+      return;
+    } catch {
+      globalDevToolsPort = null;
+    }
+  }
+}
+
 export function sendBridgeMessage(connectionId: string, payload: string): void {
   if (globalDevToolsPort) {
     try {

@@ -187,6 +187,41 @@ export default defineBackground(() => {
         if (msg.type === 'CLEAR_BUFFER' && registeredTabId !== null) {
           tabFrameBuffers.delete(registeredTabId);
           chrome.storage?.session?.remove?.(`tab_${registeredTabId}`).catch?.(() => {});
+          const conns = tabConnections.get(registeredTabId);
+          if (conns) {
+            for (const [id, c] of Array.from(conns.entries())) {
+              if (c.status === 'closed') {
+                conns.delete(id);
+              } else {
+                c.frameCount = 0;
+                c.inCount = 0;
+                c.outCount = 0;
+              }
+            }
+          }
+          debouncedPersistTabSession(registeredTabId);
+          return;
+        }
+
+        if (msg.type === 'PURGE_CONNECTIONS' && registeredTabId !== null) {
+          const conns = tabConnections.get(registeredTabId);
+          if (conns) {
+            for (const [id, c] of Array.from(conns.entries())) {
+              if (c.status === 'closed') {
+                conns.delete(id);
+              }
+            }
+            debouncedPersistTabSession(registeredTabId);
+          }
+          return;
+        }
+
+        if (msg.type === 'REMOVE_CONNECTION' && registeredTabId !== null && msg.connectionId) {
+          const conns = tabConnections.get(registeredTabId);
+          if (conns) {
+            conns.delete(msg.connectionId);
+            debouncedPersistTabSession(registeredTabId);
+          }
           return;
         }
 

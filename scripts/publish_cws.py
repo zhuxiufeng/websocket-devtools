@@ -185,6 +185,15 @@ def main():
         shutil.copy2(src_zip, dest_zip)
         print(f"🚀 Copied to Windows Desktop: {dest_zip}")
 
+        # Sync unpacked directory for immediate Chrome Developer Mode reload
+        unpacked_src = ROOT_DIR / '.output' / 'chrome-mv3'
+        unpacked_dest = DESKTOP_DIR / 'ws-telemetry-analyzer'
+        if unpacked_src.exists():
+            if unpacked_dest.exists():
+                shutil.rmtree(unpacked_dest)
+            shutil.copytree(unpacked_src, unpacked_dest)
+            print(f"🚀 Synced unpacked extension to Windows Desktop: {unpacked_dest}")
+
     # 4. Generate release notes
     notes = generate_release_notes(new_ver, args.notes)
     notes_file = ROOT_DIR / '.output' / 'release-notes.txt'
@@ -194,10 +203,11 @@ def main():
 
     # 5. Git commit & tag
     if not args.skip_git:
+        run_cmd("git add -A", check=False)
         status = run_cmd("git status --porcelain", check=False)
         if status:
             print("📝 Committing changes to git...")
-            run_cmd(f'git commit -am "chore(release): prepare v{new_ver} for Chrome Web Store"')
+            run_cmd(f'git commit -m "chore(release): prepare v{new_ver} for Chrome Web Store"')
         tag_exists = run_cmd(f'git tag -l "v{new_ver}"', check=False)
         if not tag_exists:
             print(f"🏷️  Tagging v{new_ver}...")

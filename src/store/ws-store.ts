@@ -26,6 +26,13 @@ interface WSStoreState {
   frames: WSFrame[];
   connections: Record<string, WSConnection>;
   selectedFrameId: string | null;
+  selectedConnectionId: string | null;
+  setSelectedConnectionId: (id: string | null) => void;
+  hideClosedConnections: boolean;
+  toggleHideClosedConnections: () => void;
+  setHideClosedConnections: (hide: boolean) => void;
+  purgeInactiveConnections: () => void;
+  removeConnection: (id: string) => void;
   filterQuery: string;
   filterCriteria: FilterCriteria;
   customColumns: CustomColumn[];
@@ -45,7 +52,7 @@ interface WSStoreState {
 
   // Frame actions
   addFramesBatch: (newFrames: Partial<WSFrame>[]) => void;
-  syncConnections: (connections: WSConnection[]) => void;
+  syncConnections: (connections: WSConnection[], options?: { replace?: boolean }) => void;
   clearFrames: () => void;
   setSelectedFrameId: (id: string | null) => void;
   jumpToFrameId: (id: string) => void;
@@ -121,6 +128,39 @@ export const useWSStore = create<WSStoreState>()(
       frames: [],
       connections: {},
       selectedFrameId: null,
+      selectedConnectionId: null,
+      setSelectedConnectionId: (id) => set({ selectedConnectionId: id }),
+      hideClosedConnections: false,
+      toggleHideClosedConnections: () =>
+        set((state) => ({ hideClosedConnections: !state.hideClosedConnections })),
+      setHideClosedConnections: (hide) => set({ hideClosedConnections: hide }),
+      purgeInactiveConnections: () => {
+        set((state) => {
+          const next: Record<string, WSConnection> = {};
+          for (const [id, conn] of Object.entries(state.connections)) {
+            if (conn.status === 'open') {
+              next[id] = conn;
+            }
+          }
+          const wasSelectedPurged =
+            state.selectedConnectionId !== null && !next[state.selectedConnectionId];
+          return {
+            connections: next,
+            selectedConnectionId: wasSelectedPurged ? null : state.selectedConnectionId,
+          };
+        });
+      },
+      removeConnection: (id) => {
+        set((state) => {
+          const next = { ...state.connections };
+          delete next[id];
+          return {
+            connections: next,
+            selectedConnectionId:
+              state.selectedConnectionId === id ? null : state.selectedConnectionId,
+          };
+        });
+      },
       followLatestInspector: false,
       filterQuery: '',
       filterCriteria: parseFilterQuery(''),
@@ -262,11 +302,15 @@ export const useWSStore = create<WSStoreState>()(
         });
       },
 
-      syncConnections: (incoming) => {
+      syncConnections: (incoming, options) => {
         if (!incoming || incoming.length === 0) return;
         set((state) => {
-          const next = { ...state.connections };
+          const next = options?.replace ? {} : { ...state.connections };
           for (const c of incoming) {
+            // Ignore 0-message closed ghost connections if not already tracked
+            if (c.status === 'closed' && (c.frameCount === 0 || !c.frameCount) && !next[c.id]) {
+              continue;
+            }
             next[c.id] = {
               ...(next[c.id] || {}),
               ...c,
@@ -442,11 +486,28 @@ export const useWSStore = create<WSStoreState>()(
       clearFrames: () => {
         framesLookupMap.clear();
         globalFrameProcessor.reset();
-        set({
-          frames: [],
-          selectedFrameId: null,
-          unseenNewFramesCount: 0,
-          telemetrySeries: get().telemetrySeries.map((s) => ({ ...s, dataPoints: [] })),
+        set((state) => {
+          const nextConns: Record<string, WSConnection> = {};
+          for (const [id, conn] of Object.entries(state.connections)) {
+            if (conn.status === 'open') {
+              nextConns[id] = {
+                ...conn,
+                frameCount: 0,
+                inCount: 0,
+                outCount: 0,
+              };
+            }
+          }
+          const wasSelectedPurged =
+            state.selectedConnectionId !== null && !nextConns[state.selectedConnectionId];
+          return {
+            frames: [],
+            connections: nextConns,
+            selectedFrameId: null,
+            selectedConnectionId: wasSelectedPurged ? null : state.selectedConnectionId,
+            unseenNewFramesCount: 0,
+            telemetrySeries: state.telemetrySeries.map((s) => ({ ...s, dataPoints: [] })),
+          };
         });
       },
 
@@ -768,6 +829,7 @@ export const useWSStore = create<WSStoreState>()(
         enableCarryForward: state.enableCarryForward,
         filterPresets: state.filterPresets,
         filterHistory: state.filterHistory,
+        hideClosedConnections: state.hideClosedConnections,
         mockSpeed: state.mockSpeed,
         maxFrames: state.maxFrames,
       }),

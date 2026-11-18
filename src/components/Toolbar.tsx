@@ -36,7 +36,7 @@ import {
   downloadCsvFile,
 } from '../core/trace-io';
 import { matchesFilter } from '../core/filter-engine';
-import { clearBridgeBuffer } from '../hooks/useBridge';
+import { clearBridgeBuffer, purgeBridgeConnections } from '../hooks/useBridge';
 import { MethodStatsModal } from './MethodStatsModal';
 import { ExportColumnsModal } from './ExportColumnsModal';
 
@@ -317,9 +317,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             onClick={() => {
               clearFrames();
               clearBridgeBuffer();
+              purgeBridgeConnections();
             }}
             className="p-1.5 bg-[#2d2d2d] hover:bg-[#383838] text-[#aaaaaa] hover:text-white rounded border border-[#444444] transition-colors"
-            title="Clear all frames"
+            title="Clear all frames & purge closed connections"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>

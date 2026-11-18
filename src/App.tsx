@@ -10,7 +10,8 @@ import { useBridge } from './hooks/useBridge';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 export const App: React.FC = () => {
-  const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
+  const selectedConnectionId = useWSStore((s) => s.selectedConnectionId);
+  const setSelectedConnectionId = useWSStore((s) => s.setSelectedConnectionId);
   const [showTelemetry, setShowTelemetry] = useState(true);
   const [inspectorWidth, setInspectorWidth] = useState<number>(() => {
     try {
