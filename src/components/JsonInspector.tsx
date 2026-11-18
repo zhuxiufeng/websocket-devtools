@@ -115,7 +115,7 @@ export function subtreeHasMatch(
 
 export const JsonInspector: React.FC<JsonInspectorProps> = ({ onClose }) => {
   const selectedFrame = useWSStore((state) => {
-    if (state.followLatestInspector) {
+    if (state.followLatestInspector && !state.isAutoScrollPaused) {
       return state.frames[state.frames.length - 1] || null;
     }
     return (

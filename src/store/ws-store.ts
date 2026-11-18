@@ -203,6 +203,7 @@ export const useWSStore = create<WSStoreState>()(
         set({
           selectedFrameId: targetList[nextIndex].id,
           followLatestInspector: false,
+          isAutoScrollPaused: step < 0 ? true : get().isAutoScrollPaused,
         });
       },
 
@@ -257,6 +258,7 @@ export const useWSStore = create<WSStoreState>()(
         set({
           selectedFrameId: id,
           followLatestInspector: false,
+          isAutoScrollPaused: true,
         });
       },
 
@@ -430,7 +432,7 @@ export const useWSStore = create<WSStoreState>()(
             connections: nextConnections,
             telemetrySeries: nextSeries,
             unseenNewFramesCount: unseen,
-            selectedFrameId: state.followLatestInspector
+            selectedFrameId: (state.followLatestInspector && !state.isAutoScrollPaused)
               ? updatedFrames[updatedFrames.length - 1]?.id ?? nextSelectedId
               : nextSelectedId,
           };
