@@ -376,57 +376,52 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
   const [resizingCol, setResizingCol] = useState<{ id: string; startX: number; startWidth: number } | null>(null);
   const [copiedColId, setCopiedColId] = useState<string | null>(null);
   const [isReloading, setIsReloading] = useState(false);
+  const [reloadCountdown, setReloadCountdown] = useState<number>(0);
   const reloadLockRef = useRef<boolean>(false);
-  const reloadCooldownTimerRef = useRef<any>(null);
+  const reloadIntervalRef = useRef<any>(null);
 
   const handleReloadPage = useCallback(() => {
     if (reloadLockRef.current || isReloading || typeof chrome === 'undefined' || !chrome.devtools?.inspectedWindow) return;
     reloadLockRef.current = true;
     setIsReloading(true);
+    const TOTAL_COOLDOWN_SEC = 6;
+    setReloadCountdown(TOTAL_COOLDOWN_SEC);
 
     try {
       chrome.devtools.inspectedWindow.reload({ ignoreCache: true });
     } catch {
       reloadLockRef.current = false;
       setIsReloading(false);
+      setReloadCountdown(0);
       return;
     }
 
-    if (reloadCooldownTimerRef.current) {
-      clearTimeout(reloadCooldownTimerRef.current);
+    if (reloadIntervalRef.current) {
+      clearInterval(reloadIntervalRef.current);
     }
-    // Enforce 3000ms cooldown to prevent repeated/rapid clicking
-    reloadCooldownTimerRef.current = setTimeout(() => {
-      reloadLockRef.current = false;
-      setIsReloading(false);
-    }, 3000);
+
+    let remaining = TOTAL_COOLDOWN_SEC;
+    reloadIntervalRef.current = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        if (reloadIntervalRef.current) {
+          clearInterval(reloadIntervalRef.current);
+          reloadIntervalRef.current = null;
+        }
+        reloadLockRef.current = false;
+        setIsReloading(false);
+        setReloadCountdown(0);
+      } else {
+        setReloadCountdown(remaining);
+      }
+    }, 1000);
   }, [isReloading]);
 
   useEffect(() => {
     return () => {
-      if (reloadCooldownTimerRef.current) {
-        clearTimeout(reloadCooldownTimerRef.current);
+      if (reloadIntervalRef.current) {
+        clearInterval(reloadIntervalRef.current);
       }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (typeof chrome === 'undefined' || !chrome.devtools?.network?.onNavigated) return;
-    const onNavigated = () => {
-      // Navigation committed; keep disabled for at least 1500ms after navigation to debounce
-      if (reloadCooldownTimerRef.current) {
-        clearTimeout(reloadCooldownTimerRef.current);
-      }
-      reloadCooldownTimerRef.current = setTimeout(() => {
-        reloadLockRef.current = false;
-        setIsReloading(false);
-      }, 1500);
-    };
-    chrome.devtools.network.onNavigated.addListener(onNavigated);
-    return () => {
-      try {
-        chrome.devtools.network.onNavigated.removeListener(onNavigated);
-      } catch {}
     };
   }, []);
 
@@ -1094,12 +1089,16 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
                     }`}
                     title={
                       isReloading
-                        ? 'Reloading inspected page, please wait...'
+                        ? `Reloading inspected page, please wait (${reloadCountdown}s)...`
                         : 'Reload inspected webpage to capture initial connection frames'
                     }
                   >
                     <RotateCw className={`w-3 h-3 ${isReloading ? 'animate-spin text-[#38bdf8]' : ''}`} />
-                    <span>{isReloading ? 'Reloading Page...' : 'Reload Inspected Page'}</span>
+                    <span>
+                      {isReloading
+                        ? `Reloading (${reloadCountdown}s)...`
+                        : 'Reload Inspected Page'}
+                    </span>
                   </button>
                 )}
               </>

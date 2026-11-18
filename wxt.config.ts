@@ -6,7 +6,7 @@ export default defineConfig({
   manifest: {
     name: 'WS Telemetry Analyzer - Real-Time Stream & JSON-RPC DevTools',
     description: 'High-frequency WebSocket Telemetry, JSON-RPC & Real-time Stream Analyzer for Chrome DevTools',
-    version: '1.0.25',
+    version: '1.0.26',
     permissions: ['storage'],
     icons: {
       16: 'icon-16.png',
