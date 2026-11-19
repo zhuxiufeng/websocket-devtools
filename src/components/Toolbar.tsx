@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useWSStore } from '../store/ws-store';
-import { useCompanionStore } from '../store/companion-store';
 import {
   Play,
   Pause,
@@ -84,10 +83,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const importTraceData = useWSStore((s) => s.importTraceData);
   const filterCriteria = useWSStore((s) => s.filterCriteria);
   const customColumns = useWSStore((s) => s.customColumns);
-
-  const companionStatus = useCompanionStore((s) => s.connectionStatus);
-  const isHardwareOpen = useCompanionStore((s) => s.isHardwareObservabilityOpen);
-  const toggleHardware = useCompanionStore((s) => s.toggleHardwareObservability);
 
   const [columnModalOpen, setColumnModalOpen] = useState(false);
   const [colPathInput, setColPathInput] = useState('');
@@ -714,40 +709,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </div>
         </div>
 
-        {/* Right: Custom Columns & Visual Tracker & CXSW Bridge Status */}
+        {/* Right: Custom Columns & Visual Tracker */}
         <div className="flex items-center gap-2 shrink-0">
-          {/* CXSW Bridge Status Badge */}
-          <button
-            onClick={toggleHardware}
-            className={`px-2 py-1 rounded flex items-center gap-1.5 text-[11px] font-mono transition-colors border ${
-              companionStatus === 'connected'
-                ? isHardwareOpen
-                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500 shadow-sm'
-                  : 'bg-[#242426] text-emerald-400 border-emerald-800 hover:bg-[#2d2d2d]'
-                : isHardwareOpen
-                ? 'bg-[#2d2d2d] text-white border-[#38bdf8]'
-                : 'bg-[#252526] text-[#888888] border-[#444444] hover:text-[#cccccc]'
-            }`}
-            title={
-              companionStatus === 'connected'
-                ? 'CXSW Bridge (:8088) Connected - Click to toggle Hardware Observability'
-                : 'CXSW Offline (:8088) - Click to toggle Hardware Observability'
-            }
-          >
-            <span
-              className={`w-2 h-2 rounded-full shrink-0 ${
-                companionStatus === 'connected'
-                  ? 'bg-emerald-400 animate-pulse'
-                  : companionStatus === 'connecting'
-                  ? 'bg-amber-400 animate-ping'
-                  : 'bg-zinc-500'
-              }`}
-            />
-            <span>
-              {companionStatus === 'connected' ? '🟢 CXSW Bridge (:8088)' : '⚪ CXSW Offline'}
-            </span>
-          </button>
-
           {/* Add Column Button */}
           <button
             onClick={() => setColumnModalOpen(true)}
