@@ -9,6 +9,7 @@ Chrome Web Store Package & Release Automation Script
     - <bullet 1>
     - <bullet 2>
 - Synchronizes CHROMEWEBSTORE.md metadata and commits/tags to Git
+- Supports 100% automated API upload & publishing via Chrome Web Store Publish API
 """
 
 import argparse
@@ -18,10 +19,26 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DESKTOP_DIR = Path('/mnt/c/Users/sageb/Desktop')
+ENV_FILE = ROOT_DIR / '.env'
+
+
+def load_env_vars():
+    """Load variables from .env file into os.environ if not already present."""
+    if ENV_FILE.exists():
+        for line in ENV_FILE.read_text(encoding='utf-8').splitlines():
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                k, v = line.split('=', 1)
+                k = k.strip()
+                v = v.strip().strip('"').strip("'")
+                if k not in os.environ:
+                    os.environ[k] = v
 
 
 def run_cmd(cmd: str, check: bool = True) -> str:
@@ -133,6 +150,76 @@ def update_chromewebstore_doc(version: str, notes_block: str):
     doc_path.write_text(text, encoding='utf-8')
 
 
+# --- Chrome Web Store API Integration ---
+
+def get_cws_access_token(client_id: str, client_secret: str, refresh_token: str) -> str:
+    url = "https://oauth2.googleapis.com/token"
+    payload = urllib.parse.urlencode({
+        'client_id': client_id,
+        'client_secret': client_secret,
+        'refresh_token': refresh_token,
+        'grant_type': 'refresh_token',
+    }).encode('utf-8')
+
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={'Content-Type': 'application/x-www-form-urlencoded'}
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            return data['access_token']
+    except urllib.error.HTTPError as e:
+        err = e.read().decode('utf-8')
+        raise RuntimeError(f"Failed to refresh Google OAuth access token: {err}")
+
+
+def upload_cws_package(extension_id: str, access_token: str, zip_path: Path) -> dict:
+    url = f"https://www.googleapis.com/upload/chromewebstore/v1.1/items/{extension_id}"
+    with open(zip_path, 'rb') as f:
+        zip_bytes = f.read()
+
+    req = urllib.request.Request(
+        url,
+        data=zip_bytes,
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'x-goog-api-version': '2',
+            'Content-Type': 'application/zip',
+        },
+        method='PUT'
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            return data
+    except urllib.error.HTTPError as e:
+        err = e.read().decode('utf-8')
+        raise RuntimeError(f"CWS upload failed ({e.code}): {err}")
+
+
+def publish_cws_package(extension_id: str, access_token: str) -> dict:
+    url = f"https://www.googleapis.com/chromewebstore/v1.1/items/{extension_id}/publish"
+    req = urllib.request.Request(
+        url,
+        data=b'',
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'x-goog-api-version': '2',
+            'Content-Length': '0',
+        },
+        method='POST'
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            return data
+    except urllib.error.HTTPError as e:
+        err = e.read().decode('utf-8')
+        raise RuntimeError(f"CWS publish submission failed ({e.code}): {err}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Automate Chrome Web Store build & release")
     parser.add_argument('--bump', action='store_true', help="Bump patch version in package.json & wxt.config.ts")
@@ -140,6 +227,8 @@ def main():
     parser.add_argument('--notes', type=str, nargs='*', help="Custom release notes bullets")
     parser.add_argument('--skip-test', action='store_true', help="Skip running test suites")
     parser.add_argument('--skip-git', action='store_true', help="Skip git commit & tag push")
+    parser.add_argument('--upload', action='store_true', help="Upload package to Chrome Web Store as draft via API")
+    parser.add_argument('--publish', action='store_true', help="Upload package and submit for review to Chrome Web Store via API")
     args = parser.parse_args()
 
     current_ver = get_current_version()
@@ -219,6 +308,47 @@ def main():
     print("=" * 60)
     print(notes)
     print("=" * 60 + "\n")
+
+    # 6. Automatic CWS Upload & Publish (if requested)
+    if args.upload or args.publish:
+        load_env_vars()
+        ext_id = os.environ.get('CWS_EXTENSION_ID')
+        client_id = os.environ.get('CWS_CLIENT_ID')
+        client_secret = os.environ.get('CWS_CLIENT_SECRET')
+        refresh_token = os.environ.get('CWS_REFRESH_TOKEN')
+
+        missing = []
+        if not ext_id:
+            missing.append('CWS_EXTENSION_ID')
+        if not client_id:
+            missing.append('CWS_CLIENT_ID')
+        if not client_secret:
+            missing.append('CWS_CLIENT_SECRET')
+        if not refresh_token:
+            missing.append('CWS_REFRESH_TOKEN')
+
+        if missing:
+            print("❌ Chrome Web Store API credentials missing: " + ", ".join(missing), file=sys.stderr)
+            print("👉 Run 'python3 scripts/cws_auth.py' to generate OAuth credentials,", file=sys.stderr)
+            print("   and configure CWS_EXTENSION_ID in .env or as environment variables.\n", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"🌐 Uploading package to Chrome Web Store (Item: {ext_id})...")
+        try:
+            token = get_cws_access_token(client_id, client_secret, refresh_token)
+            upload_res = upload_cws_package(ext_id, token, src_zip)
+            if upload_res.get('uploadState') == 'SUCCESS':
+                print(f"✅ Upload succeeded! Item ID: {ext_id}")
+            else:
+                print(f"⚠️  Upload response: {upload_res}")
+
+            if args.publish:
+                print(f"🚀 Submitting item {ext_id} for Chrome Web Store review/publish...")
+                pub_res = publish_cws_package(ext_id, token)
+                print(f"✅ Publish request accepted! Status: {pub_res.get('status', 'OK')}")
+        except Exception as e:
+            print(f"❌ Error during Chrome Web Store API operation: {e}", file=sys.stderr)
+            sys.exit(1)
 
 
 if __name__ == '__main__':
