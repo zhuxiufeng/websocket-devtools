@@ -1,0 +1,1 @@
+/mnt/c/Users/sageb/Desktop/start_chrome_ai.bat
