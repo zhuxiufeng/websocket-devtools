@@ -62,10 +62,11 @@ What's new in v<version>:
 
 | Skill 内部路径 | 软链接指向的工作区源文件绝对路径 | 作用说明 |
 | :--- | :--- | :--- |
-| `scripts/publish_cws.py` | `/home/zxf/workspace/code/agy/chrome_extension/dev_tool/scripts/publish_cws.py` | Chrome 应用店全流程编译、打包、桌面同步与更新日志生成脚本 |
+| `scripts/publish_cws.py` | `/home/zxf/workspace/code/agy/chrome_extension/dev_tool/scripts/publish_cws.py` | Chrome 应用店全流程编译、打包、桌面同步、API 静默上传与更新日志生成脚本 |
+| `scripts/cws_auth.py` | `/home/zxf/workspace/code/agy/chrome_extension/dev_tool/scripts/cws_auth.py` | Chrome Web Store OAuth 2.0 凭据初始化与 Refresh Token 生成助手 |
 
 > [!IMPORTANT]
-> 如需修改打包或日志生成逻辑，请直接编辑工作区源文件 `/home/zxf/workspace/code/agy/chrome_extension/dev_tool/scripts/publish_cws.py`，Skill 内部脚本将实时自动同步更新。
+> 如需修改打包、授权或日志生成逻辑，请直接编辑工作区源文件 `/home/zxf/workspace/code/agy/chrome_extension/dev_tool/scripts/publish_cws.py` 或 `scripts/cws_auth.py`，Skill 内部脚本将实时自动同步更新。
 
 ---
 
@@ -85,4 +86,13 @@ python3 scripts/publish_cws.py --version 1.0.17
 
 # 4. 指定自定义更新条目（避免自动提取 Git 日志）
 python3 scripts/publish_cws.py --bump --notes "Added new filter presets" "Fixed table rendering stall"
+
+# 5. 全自动编译打包并上传到 Chrome 应用店作为草稿 (Draft)
+python3 scripts/publish_cws.py --bump --upload
+
+# 6. 全自动编译打包并直接提交 Chrome Web Store 审核发布 (Publish)
+python3 scripts/publish_cws.py --bump --publish
+
+# 7. 一键生成 Google OAuth Refresh Token 凭证
+python3 scripts/cws_auth.py
 ````
