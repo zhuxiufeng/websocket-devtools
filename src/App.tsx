@@ -5,13 +5,17 @@ import { FrameTable } from './components/FrameTable';
 import { JsonInspector } from './components/JsonInspector';
 import { TelemetryTracker } from './components/TelemetryTracker';
 import { CommandConsole } from './components/CommandConsole';
+import { HardwareObservabilityPanel } from './components/HardwareObservabilityPanel';
 import { useWSStore } from './store/ws-store';
+import { useCompanionStore } from './store/companion-store';
 import { useBridge } from './hooks/useBridge';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 export const App: React.FC = () => {
   const selectedConnectionId = useWSStore((s) => s.selectedConnectionId);
   const setSelectedConnectionId = useWSStore((s) => s.setSelectedConnectionId);
+  const isHardwareOpen = useCompanionStore((s) => s.isHardwareObservabilityOpen);
+  const setHardwareOpen = useCompanionStore((s) => s.setHardwareObservabilityOpen);
   const [showTelemetry, setShowTelemetry] = useState(true);
   const [inspectorWidth, setInspectorWidth] = useState<number>(() => {
     try {
@@ -209,10 +213,17 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* Middle Pane: Virtualized Frame Stream Table + Command Console */}
+        {/* Middle Pane: Virtualized Frame Stream Table + Command Console + Split Hardware Observability Panel */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
-          <FrameTable selectedConnectionId={selectedConnectionId} />
-          <CommandConsole />
+          <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+            <FrameTable selectedConnectionId={selectedConnectionId} />
+            <CommandConsole />
+          </div>
+          {isHardwareOpen && (
+            <div className="h-72 shrink-0 overflow-hidden">
+              <HardwareObservabilityPanel onClose={() => setHardwareOpen(false)} />
+            </div>
+          )}
         </div>
 
         {/* Right Pane: JSON Inspector & Telemetry Tracker (Resizable) or Collapsed Strip */}
