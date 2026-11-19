@@ -384,7 +384,7 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
     if (reloadLockRef.current || isReloading || typeof chrome === 'undefined' || !chrome.devtools?.inspectedWindow) return;
     reloadLockRef.current = true;
     setIsReloading(true);
-    const TOTAL_COOLDOWN_SEC = 6;
+    const TOTAL_COOLDOWN_SEC = 15;
     setReloadCountdown(TOTAL_COOLDOWN_SEC);
 
     try {
@@ -424,6 +424,19 @@ export const FrameTable: React.FC<FrameTableProps> = ({ selectedConnectionId }) 
       }
     };
   }, []);
+
+  // Auto-clear reload countdown if frames arrive before cooldown finishes
+  useEffect(() => {
+    if (frames.length > 0 && isReloading) {
+      if (reloadIntervalRef.current) {
+        clearInterval(reloadIntervalRef.current);
+        reloadIntervalRef.current = null;
+      }
+      reloadLockRef.current = false;
+      setIsReloading(false);
+      setReloadCountdown(0);
+    }
+  }, [frames.length, isReloading]);
 
   // Incremental filter engine instance
   const filterEngineRef = useRef<IncrementalFilterEngine | null>(null);
